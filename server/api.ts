@@ -8,6 +8,7 @@ import {createSession,currentUser,requireUser,sessionCookie,sessionToken,digest,
 import {googleRoute} from './google';
 import type {GoogleConfig} from './config';
 import {socialRoute} from './social';
+import {friendsRoute} from './friends';
 import {calendarRoute} from './calendar';
 import {pollRoute} from './polls';
 import {discoveryRoute} from './discovery';
@@ -67,7 +68,7 @@ export async function handleRequest(req:Request,ctx:Context):Promise<Response>{
     }else if(path==='/api/auth/me'&&req.method==='GET')response=json({user:await currentUser(ctx.db,req)});
     else{
       const user=await requireUser(ctx.db,req);
-      response=await socialRoute(req,ctx.db,user,path)??await calendarRoute(req,ctx.db,user,path)??await pollRoute(req,ctx.db,user,path)??await discoveryRoute(req,ctx.db,user,path,ctx.ticketmasterKey)??json({error:'Endpoint not found.'},404);
+      response=await friendsRoute(req,ctx.db,user,path)??await socialRoute(req,ctx.db,user,path)??await calendarRoute(req,ctx.db,user,path)??await pollRoute(req,ctx.db,user,path)??await discoveryRoute(req,ctx.db,user,path,ctx.ticketmasterKey)??json({error:'Endpoint not found.'},404);
     }
     return finish(response);
   }catch(error){

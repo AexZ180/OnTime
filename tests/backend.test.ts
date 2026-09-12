@@ -210,3 +210,100 @@ test('Google sign-in creates, reuses, and refuses to capture accounts',async()=>
     assert.equal(attempt.status,401);
   }finally{globalThis.fetch=realFetch;await client.close();await rm(directory,{recursive:true,force:true})}
 });
+
+test('friend groups, per-friend sharing, and what a busy viewer never receives',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'ontime-friends-'));
+  const client=new PGlite(directory);await client.waitReady;
+  const db=drizzle(client,{schema});
+  await migrateDatabase({db,client,mode:'local',close:()=>client.close()} as DatabaseConnection);
+  const context=():Context=>({db,mode:'local',origins:['http://localhost:5173'],appOrigin:'http://localhost:5173',google:null,secureCookies:false,clientAddress:'test'});
+  async function call(path:string,method='GET',data?:unknown,cookie='',expected=200){
+    const response=await handleRequest(new Request('http://localhost:5173/api'+path,{method,headers:{'content-type':'application/json',origin:'http://localhost:5173',cookie},...(data===undefined?{}:{body:JSON.stringify(data)})}),context());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const value:any=await response.json();assert.equal(response.status,expected,JSON.stringify(value));
+    return {value,cookie:response.headers.get('set-cookie')?.split(';')[0]??cookie};
+  }
+  async function register(username:string){
+    const {value,cookie}=await call('/auth/register','POST',{email:`${username}@example.com`,username,password,name:username},'',201);
+    return {id:value.user.id as string,cookie};
+  }
+  const window=`?start=${encodeURIComponent('2030-09-30T00:00:00Z')}&end=${encodeURIComponent('2030-10-03T00:00:00Z')}`;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const feed=async(cookie:string)=>(await call('/friends/calendar'+window,'GET',undefined,cookie)).value.friends as any[];
+  try{
+    const alice=await register('alice'),bob=await register('bob'),carol=await register('carol');
+    // Two touching events, so a busy viewer also cannot read the seam between them.
+    await call('/action','POST',{action:'save',event:{calendar:'personal-'+alice.id,title:'Dentist',start,end,location:'Fern Street Dental',invitees:'',notes:'Bring the referral',allDay:false}},alice.cookie);
+    await call('/action','POST',{action:'save',event:{calendar:'personal-'+alice.id,title:'Gym',start:end,end:'2030-10-01T18:00:00Z',location:'',invitees:'',notes:'',allDay:false}},alice.cookie);
+
+    // A pending request shares nothing yet.
+    const request=await call('/friends/requests','POST',{userId:bob.id},alice.cookie,201);
+    assert.deepEqual(await feed(bob.cookie),[]);
+    await call(`/friends/${request.value.id}`,'PATCH',{action:'accept'},bob.cookie);
+
+    // The account default is 'busy': one merged block, and not a single detail.
+    const [busy]=await feed(bob.cookie);
+    assert.equal(busy.sharing,'busy');
+    assert.equal(busy.events.length,1,'touching events merge into one block');
+    assert.deepEqual(Object.keys(busy.events[0]).sort(),['end','start']);
+    assert.equal(busy.events[0].start,start);
+    assert.equal(busy.events[0].end,'2030-10-01T18:00:00Z');
+    assert.doesNotMatch(JSON.stringify(busy),/Dentist|Gym|Fern Street|referral/,'a busy viewer receives no titles, places, or notes');
+
+    // A per-friend override opens the details up.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'details'},alice.cookie);
+    const [detailed]=await feed(bob.cookie);
+    assert.equal(detailed.sharing,'details');
+    assert.equal(detailed.events.length,2);
+    assert.deepEqual(detailed.events.map((e:{title:string})=>e.title).sort(),['Dentist','Gym']);
+    assert.equal(detailed.events.find((e:{title:string})=>e.title==='Dentist').location,'Fern Street Dental');
+    // Details still stop short of the private fields the owner never offered.
+    assert.doesNotMatch(JSON.stringify(detailed),/referral/,'notes stay with the owner');
+
+    // A group carries the level, so filing a friend into it is enough.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'default'},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'busy');
+    const close=await call('/friends/groups','POST',{name:'Close friends',color:0,sharing:'details'},alice.cookie,201);
+    const work=await call('/friends/groups','POST',{name:'Work',color:2,sharing:'busy'},alice.cookie,201);
+    await call(`/friends/groups/${close.value.id}/members`,'PUT',{userIds:[bob.id]},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'details');
+
+    // In two groups, the most permissive one decides.
+    await call(`/friends/groups/${work.value.id}/members`,'PUT',{userIds:[bob.id]},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'details');
+
+    // A per-person 'none' overrides even a group that grants details.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'none'},alice.cookie);
+    assert.deepEqual(await feed(bob.cookie),[],'an override of none hides the calendar outright');
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'default'},alice.cookie);
+
+    // Changing the account default moves everyone who has no group and no override.
+    await call('/action','POST',{action:'profile',profile:{defaultSharing:'none'}},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'details','a group still outranks the default');
+    await call(`/friends/groups/${close.value.id}`,'DELETE',undefined,alice.cookie);
+    await call(`/friends/groups/${work.value.id}`,'DELETE',undefined,alice.cookie);
+    assert.deepEqual(await feed(bob.cookie),[],'with no group left the default hides it');
+    await call('/action','POST',{action:'profile',profile:{defaultSharing:'busy'}},alice.cookie);
+
+    // Carol is nobody's friend and sees nothing, whatever she asks for.
+    assert.deepEqual(await feed(carol.cookie),[]);
+    // Groups are for accepted friends only, so one cannot be used to reach a stranger.
+    const strangers=await call('/friends/groups','POST',{name:'Strangers',sharing:'details'},alice.cookie,201);
+    await call(`/friends/groups/${strangers.value.id}/members`,'PUT',{userIds:[carol.id]},alice.cookie,400);
+    // Nor can a group be edited by someone who does not own it.
+    await call(`/friends/groups/${strangers.value.id}`,'PATCH',{sharing:'details'},bob.cookie,404);
+    await call(`/friends/groups/${strangers.value.id}/members`,'PUT',{userIds:[]},bob.cookie,404);
+    await call(`/friends/sharing/${alice.id}`,'PUT',{sharing:'details'},carol.cookie,404);
+
+    // Both directions are reported independently to the owner of the list.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'details'},alice.cookie);
+    const [listed]=(await call('/friends','GET',undefined,alice.cookie)).value.friends;
+    assert.equal(listed.sharing,'details','what Alice shares with Bob');
+    assert.equal(listed.theirSharing,'busy','what Bob shares with Alice');
+
+    // Blocking cuts the calendar off in both directions at once.
+    await call(`/friends/${request.value.id}`,'PATCH',{action:'block'},bob.cookie);
+    assert.deepEqual(await feed(bob.cookie),[]);
+    assert.deepEqual(await feed(alice.cookie),[]);
+  }finally{await client.close();await rm(directory,{recursive:true,force:true})}
+});
