@@ -11,6 +11,7 @@ import {migrateDatabase,type DatabaseConnection} from '../server/database';
 import {handleRequest,type Context} from '../server/api';
 import {rankSlots,availabilityAt} from '../server/scheduling';
 import {digest,rateLimit} from '../server/auth';
+import {geohash,normalizeTicketmasterEvent} from '../server/discovery';
 
 const password='A long demo password 2026!';
 const start='2030-10-01T15:00:00Z',end='2030-10-01T17:00:00Z';
@@ -107,6 +108,12 @@ test('full duration, adjacent blocks, gaps, endpoint boundaries, preferences and
   assert.equal(availabilityAt(a,b,[{userId:'a',start,end,status:'preferred'}],[{userId:'a',start:'2030-10-01T16:00:00Z',end}]),'preferred');
   const slots=rankSlots({windows:[{start:'2030-10-01T10:00:00-05:00',end}],durationMinutes:60,minParticipants:1},[{userId:'a',required:true}],[{userId:'a',start,end,status:'available'}],[]);
   assert.equal(slots.length,5);assert.equal(slots[0].start,'2030-10-01T15:00:00.000Z');assert.equal(slots[0].qualified,true);
+});
+
+test('Ticketmaster locations are encoded and provider events are reduced to safe UI fields',()=>{
+  assert.equal(geohash(41.8781,-87.6298),'dp3wjzt');
+  const event=normalizeTicketmasterEvent({id:'abc',name:'Live show',url:'https://tickets.example/show',distance:4.2,units:'MILES',images:[{url:'http://unsafe.example/image',width:2000},{url:'https://images.example/wide',ratio:'16_9',width:1024}],dates:{timezone:'America/Chicago',status:{code:'onsale'},start:{dateTime:'2030-10-01T23:00:00Z',localDate:'2030-10-01',localTime:'18:00:00'}},classifications:[{primary:true,segment:{name:'Music'},genre:{name:'Rock'}}],priceRanges:[{currency:'USD',min:20,max:80}],_embedded:{venues:[{name:'The Venue',city:{name:'Chicago'},state:{stateCode:'IL'},country:{countryCode:'US'},address:{line1:'1 Main St'},location:{latitude:'41.88',longitude:'-87.63'}}]}});
+  assert.deepEqual(event,{id:'abc',name:'Live show',url:'https://tickets.example/show',imageUrl:'https://images.example/wide',start:{dateTime:'2030-10-01T23:00:00Z',localDate:'2030-10-01',localTime:'18:00:00',dateTBD:false,dateTBA:false,timeTBA:false,timeZone:'America/Chicago'},status:'onsale',distance:4.2,distanceUnit:'MILES',category:'Music',genre:'Rock',subGenre:null,venue:{name:'The Venue',address:'1 Main St',city:'Chicago',state:'IL',country:'US',latitude:41.88,longitude:-87.63},price:{currency:'USD',min:20,max:80}});
 });
 
 test('Google sign-in creates, reuses, and refuses to capture accounts',async()=>{

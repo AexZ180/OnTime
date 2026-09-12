@@ -10,8 +10,9 @@ import type {GoogleConfig} from './config';
 import {socialRoute} from './social';
 import {calendarRoute} from './calendar';
 import {pollRoute} from './polls';
+import {discoveryRoute} from './discovery';
 
-export type Context={db:Database;mode:string;origins:string[];appOrigin:string;google:GoogleConfig|null;secureCookies:boolean;clientAddress:string};
+export type Context={db:Database;mode:string;origins:string[];appOrigin:string;google:GoogleConfig|null;ticketmasterKey?:string;secureCookies:boolean;clientAddress:string};
 export const MIN_PASSWORD=15;
 // The sign-up form collects the profile details in the same flow, so they are written
 // with the account instead of leaving a half-filled profile behind on a failed follow-up.
@@ -66,7 +67,7 @@ export async function handleRequest(req:Request,ctx:Context):Promise<Response>{
     }else if(path==='/api/auth/me'&&req.method==='GET')response=json({user:await currentUser(ctx.db,req)});
     else{
       const user=await requireUser(ctx.db,req);
-      response=await socialRoute(req,ctx.db,user,path)??await calendarRoute(req,ctx.db,user,path)??await pollRoute(req,ctx.db,user,path)??json({error:'Endpoint not found.'},404);
+      response=await socialRoute(req,ctx.db,user,path)??await calendarRoute(req,ctx.db,user,path)??await pollRoute(req,ctx.db,user,path)??await discoveryRoute(req,ctx.db,user,path,ctx.ticketmasterKey)??json({error:'Endpoint not found.'},404);
     }
     return finish(response);
   }catch(error){

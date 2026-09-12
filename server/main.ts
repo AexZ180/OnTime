@@ -11,7 +11,7 @@ const server=createServer(async(req,res)=>{
     for await(const chunk of req){size+=chunk.length;if(size>2_000_000){res.writeHead(413,{'Content-Type':'application/json'});res.end('{"error":"Request too large."}');return}chunks.push(Buffer.from(chunk))}
     const headers=new Headers();for(const [name,value] of Object.entries(req.headers))if(value)headers.set(name,Array.isArray(value)?value.join(','):value);
     const request=new Request(`http://127.0.0.1:${settings.port}${req.url}`,{method:req.method,headers,...(!['GET','HEAD'].includes(req.method??'GET')?{body:Buffer.concat(chunks)}:{})});
-    const response=await handleRequest(request,{db:connection.db,mode:connection.mode,origins:settings.origins,appOrigin:settings.appOrigin,google:settings.google,secureCookies:settings.secureCookies,clientAddress:req.socket.remoteAddress??'unknown'});
+    const response=await handleRequest(request,{db:connection.db,mode:connection.mode,origins:settings.origins,appOrigin:settings.appOrigin,google:settings.google,ticketmasterKey:settings.ticketmasterKey,secureCookies:settings.secureCookies,clientAddress:req.socket.remoteAddress??'unknown'});
     res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
   }catch{res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":"Request failed."}')}
 });

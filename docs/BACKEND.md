@@ -142,6 +142,26 @@ Ranking prioritizes qualified slots, attendee count, preferred count, maybe coun
 
 `GET /events/:eventId/rsvp` returns `{event,responses,mine}` for organizer/members. `POST /events/:eventId/rsvp` with `{status:"Going"|"Maybe"|"Not going"}` changes only the caller's RSVP. Only the organizer sees all response names. Legacy `GET /rsvp?token=...` and `POST /rsvp` with `{token,status}` still work: possession of this unguessable invitation token grants event access and allows a signed-in user to join. Treat tokens as shareable invitation links, not public event IDs.
 
+### 5. Nearby event discovery
+
+Set the Ticketmaster Discovery API Consumer Key in ignored `.env.local` as `TICKETMASTER_API_KEY`. The key stays in the Node process and is never returned to the browser. Restart the API after adding or rotating it.
+
+Signed-in users can search by city without granting device location:
+
+```text
+GET /discover/events?city=Chicago&radius=25&unit=miles&category=music&size=20
+```
+
+For current-location search, the frontend must first request browser geolocation after a user gesture, and the user profile's `locationSharing` must be `while_using` or `always`:
+
+```text
+GET /discover/events?latitude=41.8781&longitude=-87.6298&radius=25&unit=miles
+```
+
+Optional parameters are `keyword`, `category`, `start`, `end`, `postalCode`, `page`, and `size`. Radius is 1–100, size is 1–50, and dates must include a UTC `Z` or numeric offset. Results are cached in this API process for five minutes to protect the provider quota. The response is `{events,page,source:"Ticketmaster"}`. Events contain normalized name, date/time/timezone, venue and city, distance, classification, price range, image URL, and Ticketmaster URL.
+
+Coordinates are sent to Ticketmaster for the search and are not written to OnTime's database or logs. A profile set to `never` receives 403 for coordinate searches and can still use city or postal-code search. Ticketmaster results are external suggestions; adding one to an OnTime calendar should go through the existing event creation endpoint after the user chooses it.
+
 ## Verification
 
 ```sh
