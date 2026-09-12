@@ -20,7 +20,7 @@ const hasDisallowed = s => /\s|\p{Extended_Pictographic}|[\u200D\uFE0F\u20E3]/u.
 const hasEmoji = s => /\p{Extended_Pictographic}|[\u200D\uFE0F\u20E3]/u.test(s);
 const query = new URLSearchParams(location.search);
 // Only same-site paths are followed, so a crafted link cannot redirect sign-in elsewhere.
-const next = (value => value && value.startsWith('/') && !value.startsWith('//') && value.length <= 200 ? value : '/')(query.get('next'));
+const next = (value => value && value.startsWith('/') && !value.startsWith('//') && value.length <= 200 ? value : '/dashboard.html')(query.get('next'));
 const signInErrors = {
     google_unavailable: 'Google sign-in is not set up for this deployment yet.',
     google_denied: 'Google sign-in was cancelled.',
