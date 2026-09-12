@@ -13,7 +13,9 @@ export function getDb() {
       );
     }
 
-    const client = postgres(env.DATABASE_URL, { prepare: false, max: 1 });
+    // A small pool (rather than max:1) so concurrent queries within one
+    // request (e.g. the Promise.all in /api/state) actually run in parallel.
+    const client = postgres(env.DATABASE_URL, { prepare: false, max: 5 });
     _db = drizzle(client, { schema });
   }
 
