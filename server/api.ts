@@ -3,14 +3,20 @@ import {eq,or} from 'drizzle-orm';
 import {z} from 'zod';
 import {accounts,profiles,calendars,sessions} from '../db/schema';
 import type {Database} from './database';
-import {ApiError,body,ensure,json,username,timeZone} from './http';
+import {ApiError,body,ensure,json,username,timeZone,birthday} from './http';
 import {createSession,currentUser,requireUser,sessionCookie,sessionToken,digest,hashPassword,verifyPassword,fakePasswordHash,rateLimit} from './auth';
+import {googleRoute} from './google';
+import type {GoogleConfig} from './config';
 import {socialRoute} from './social';
 import {calendarRoute} from './calendar';
 import {pollRoute} from './polls';
 
-export type Context={db:Database;mode:string;origins:string[];secureCookies:boolean;clientAddress:string};
-const registration=z.object({email:z.string().trim().toLowerCase().email().max(254),username,password:z.string().min(15).max(128),name:z.string().trim().min(1).max(100),timeZone:timeZone.default('UTC')}).strict();
+export type Context={db:Database;mode:string;origins:string[];appOrigin:string;google:GoogleConfig|null;secureCookies:boolean;clientAddress:string};
+export const MIN_PASSWORD=15;
+// The sign-up form collects the profile details in the same flow, so they are written
+// with the account instead of leaving a half-filled profile behind on a failed follow-up.
+const registration=z.object({email:z.string().trim().toLowerCase().email().max(254),username,password:z.string().min(MIN_PASSWORD).max(128),name:z.string().trim().min(1).max(100),timeZone:timeZone.default('UTC'),
+  birthday:birthday.default(''),gender:z.enum(['Woman','Man','Non-binary','Prefer not to say','']).default(''),phone:z.string().trim().max(20).default(''),eventRecommendations:z.boolean().default(false)}).strict();
 function databaseCode(error:unknown):string|undefined{if(!error||typeof error!=='object')return;const e=error as {code?:string;cause?:unknown};return e.code??databaseCode(e.cause)}
 export async function handleRequest(req:Request,ctx:Context):Promise<Response>{
   const origin=req.headers.get('origin');
@@ -30,12 +36,17 @@ export async function handleRequest(req:Request,ctx:Context):Promise<Response>{
     }
     let response:Response;
     if(path==='/api/health'&&req.method==='GET')response=json({ok:true,storage:ctx.mode});
+    else if(path.startsWith('/api/auth/google')||path==='/api/auth/providers'){
+      const handled=await googleRoute(req,ctx,path);
+      if(!handled)return finish(json({error:'Endpoint not found.'},404));
+      response=handled;
+    }
     else if(path==='/api/auth/register'&&req.method==='POST'){
       await rateLimit(ctx.db,'register:'+ctx.clientAddress,10);
       const b=await body(req,registration),passwordHash=await hashPassword(b.password),userId=randomUUID();
       const token=await ctx.db.transaction(async tx=>{
         await tx.insert(accounts).values({id:userId,email:b.email,username:b.username,passwordHash});
-        await tx.insert(profiles).values({owner:userId,name:b.name,timeZone:b.timeZone});
+        await tx.insert(profiles).values({owner:userId,name:b.name,timeZone:b.timeZone,birthday:b.birthday,gender:b.gender,phone:b.phone,eventRecommendations:b.eventRecommendations});
         await tx.insert(calendars).values({id:'personal-'+userId,owner:userId,name:'Personal',color:'0'});
         return createSession(tx,userId,sessionToken(req));
       });response=json({user:{id:userId,email:b.email,username:b.username,name:b.name}},201,{'Set-Cookie':sessionCookie(token,ctx.secureCookies)});
@@ -45,7 +56,8 @@ export async function handleRequest(req:Request,ctx:Context):Promise<Response>{
       await rateLimit(ctx.db,'login-user:'+b.identifier,15);
       const [account]=await ctx.db.select().from(accounts).where(or(eq(accounts.email,b.identifier),eq(accounts.username,b.identifier))).limit(1);
       const valid=await verifyPassword(account?.passwordHash??await fakePasswordHash(),b.password);
-      ensure(account&&valid,401,'Invalid username/email or password.');
+      // Google-only accounts have no password; the reply stays identical either way.
+      ensure(account?.passwordHash&&valid,401,'Invalid username/email or password.');
       const token=await createSession(ctx.db,account.id,sessionToken(req));
       response=json({user:{id:account.id,email:account.email,username:account.username}},200,{'Set-Cookie':sessionCookie(token,ctx.secureCookies)});
     }else if(path==='/api/auth/logout'&&req.method==='POST'){

@@ -1,6 +1,8 @@
 # OnTime backend handoff
 
-The Node backend implements independent accounts, profiles, friend requests, member-only scheduling polls, ranked overlap, confirmation into a shared calendar event, and RSVP. The existing calendar CRUD/import endpoints now use these accounts. Frontend components have not been modified: the frontend teammate must replace the ChatGPT sign-in link and connect the account, friend, and poll screens below.
+The Node backend implements independent accounts, profiles, friend requests, member-only scheduling polls, ranked overlap, confirmation into a shared calendar event, and RSVP. The existing calendar CRUD/import endpoints now use these accounts.
+
+The sign-in screen is connected. `public/login.html`, `public/login.css`, `public/login.js`, and `public/ollie.webp` are served as static assets at `/login` (also `/login.html`) and call the endpoints below on the same origin. The calendar app links to `/login` instead of the old ChatGPT sign-in link, and its sidebar has a sign-out control. The friend and poll screens are still unconnected.
 
 ## Start on your machine
 
@@ -23,13 +25,34 @@ Configuration loads from process environment, then `.env.local`, `.env`, and `.d
 
 1. Obtain your service's PostgreSQL connection URL from the teammate/Tiger Data dashboard. The code alone does not create or provision a Tiger Data account.
 2. In ignored `.env.local`, set `DATABASE_MODE=tiger` and `DATABASE_URL` to that URL with the provider's TLS settings. Remove an explicit `DATABASE_MODE=local` if you copied the example. Never paste credentials into source code or chat.
-3. Restart the API. It applies the existing Drizzle migrations followed by `0002_fixed_gambit.sql` and reports `storage: tiger` after migration succeeds. Missing or failing Tiger configuration stops startup; it does not silently fall back to local storage.
+3. Restart the API. It applies the existing Drizzle migrations followed by `0002_fixed_gambit.sql` and `0003_google_auth.sql`, and reports `storage: tiger` after migration succeeds. Missing or failing Tiger configuration stops startup; it does not silently fall back to local storage.
 
 The new migration adds tables/columns and preserves the original calendar/event/profile data. Existing migrations must be reflected in Drizzle's migration journal on an existing service; do not run them again manually against already-created tables. Local and Tiger Data use the same SQL schema. **Switching the URL selects another database; it does not copy local rows to the hosted database.** For the hackathon, create demo accounts in the selected database. A migration of existing local or ChatGPT-owned accounts would be a separate data-transfer operation. Legacy ChatGPT owner IDs are not automatically claimed by a matching email.
 
-Profiles and event records remain stored until explicitly changed/deleted or the database is removed. Sessions expire after seven days and logout revokes the session in SQL. Hosted backup retention depends on your Tiger Data service settings; this code does not configure provider backups. Email verification, password reset, account deletion/export, automatic expiration cleanup, and production abuse monitoring are not implemented in this hackathon backend.
+Profiles and event records remain stored until explicitly changed/deleted or the database is removed. Sessions expire after seven days and logout revokes the session in SQL. Hosted backup retention depends on your Tiger Data service settings; this code does not configure provider backups. Email verification, password reset, account deletion/export, automatic expiration cleanup, and production abuse monitoring are not implemented in this hackathon backend. The sign-in screen's "Forgot password?" dialog says so rather than pretending to send an email.
 
-Production requires `NODE_ENV=production`, a working database URL, and HTTPS `APP_ORIGIN`. Cookies then use Secure. The Node listener binds to loopback; put it behind your deployment's reverse proxy. The frontend Worker needs an explicit reachable `API_BASE_URL` outside local development. Do not assume the old private Sites deployment runs this separate Node process. IP limits use the actual socket address, not untrusted forwarded headers; behind the frontend proxy that becomes a shared IP limit (10 registrations/15 minutes and 50 logins/15 minutes), plus 15 login attempts per identifier/15 minutes.
+Production requires `NODE_ENV=production`, a working database URL, and HTTPS `APP_ORIGIN`. Cookies then use Secure. The Node listener binds to loopback; put it behind your deployment's reverse proxy. The frontend Worker needs an explicit reachable `API_BASE_URL` outside local development. Do not assume the old private Sites deployment runs this separate Node process. IP limits use the actual socket address, not untrusted forwarded headers; behind the frontend proxy that becomes a shared IP limit (10 registrations/15 minutes and 50 logins/15 minutes), plus 15 login attempts per identifier/15 minutes and 60 Google handshakes/15 minutes.
+
+## Google sign-in
+
+Create an **OAuth 2.0 Client ID** of type *Web application* in the Google Cloud console, then set in ignored `.env.local`:
+
+```sh
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+# Optional. Defaults to the first APP_ORIGIN plus /api/auth/google/callback.
+# GOOGLE_REDIRECT_URI=http://localhost:5173/api/auth/google/callback
+```
+
+Add that exact redirect URI to the client's **Authorised redirect URIs**. It must point at the *frontend* origin, not at port 3001: the browser makes that request itself, the frontend forwards it to Node, and the session cookie therefore lands on the origin the rest of the app uses. With either variable missing, `GET /api/auth/providers` reports `{"google": false}` and the sign-in screen hides the button; nothing else changes.
+
+The flow is the authorization code flow with PKCE (S256). `GET /api/auth/google/start` stores the code verifier in `oauth_states`, sets a short-lived `ontime_oauth` binding cookie scoped to `/api/auth/google`, and redirects to Google. `GET /api/auth/google/callback` consumes that row once, requires the binding cookie to match, exchanges the code server-side, and reads the ID token's claims. Signature verification is skipped deliberately, as Google documents, because the token comes straight from the token endpoint over TLS; `iss`, `aud`, `exp`, and `email_verified` are all checked.
+
+A first Google sign-in creates the account (username derived from the email local part, with a random suffix on collision), signs the browser in, and returns to `/login.html?google=new`, where the sign-up steps collect birthday, gender, and the agreements for the profile that already exists. Later sign-ins go straight to the app.
+
+**An existing password account is never adopted by a matching Google email.** Registration does not verify email addresses, so linking one would let whoever registered an address first capture the real owner's Google sign-in. That sign-in is refused with `?error=google_exists` and the person is asked to use their password. Linking the two safely needs email verification, which this backend does not implement.
+
+Accounts now carry either a password hash or a Google subject, or both; a SQL check constraint enforces that at least one exists, and `POST /auth/login` rejects Google-only accounts the same way it rejects a wrong password. Failures come back as a redirect to `/login.html?error=<code>`, never as JSON: `google_unavailable`, `google_denied`, `google_expired` (unknown, replayed, or unbound state), `google_email`, `google_exists`, `google_failed`.
 
 ## Frontend API contract
 
@@ -52,14 +75,17 @@ async function api(path: string, method = 'GET', data?: unknown) {
 
 | Method / path | Body / result |
 | --- | --- |
-| POST `/auth/register` | `{email, username, password, name, timeZone?}` → `{user}` plus session cookie, 201 |
+| POST `/auth/register` | `{email, username, password, name, timeZone?, birthday?, gender?, phone?, eventRecommendations?}` → `{user}` plus session cookie, 201 |
 | POST `/auth/login` | `{identifier, password}`; identifier is email or username → `{user}` plus session cookie |
 | POST `/auth/logout` | `{}` → `{ok:true}`, revokes cookie/session |
 | GET `/auth/me` | `{user: {id,email,username} \| null}` |
+| GET `/auth/providers` | `{google: boolean}`; whether the Google button should be shown |
+| GET `/auth/google/start` | Redirects the browser to Google. Optional `?next=` is a same-site path to return to |
+| GET `/auth/google/callback` | Google's redirect target. Always answers with a redirect, never JSON |
 | GET `/profile` | `{profile}` with own settings and username |
-| PATCH `/profile` | Any of `{name,username,birthday,homeCity,timeZone,locationSharing,bio,visibility}` → `{profile}` |
+| PATCH `/profile` | Any of `{name,username,birthday,homeCity,timeZone,locationSharing,bio,visibility,phone,gender,eventRecommendations}` → `{profile}` |
 
-Usernames normalize to lowercase and contain 3–30 letters, digits, or underscores. Passwords are 15–128 characters, stored as Argon2id hashes, never plaintext. Session tokens are random, stored hashed in SQL, sent only through HttpOnly/SameSite=Lax cookies. Email and username uniqueness are enforced by SQL. Birthday is blank or a real `YYYY-MM-DD` date; timezone must be IANA, e.g. `America/Chicago`. `locationSharing` accepts `never`, `while_using`, `always` as a stored preference; no live geolocation is implemented.
+Usernames normalize to lowercase and contain 3–30 letters, digits, or underscores; the sign-up form asks for a stricter 3–24 starting with a letter. Passwords are 15–128 characters, stored as Argon2id hashes, never plaintext — the form's minimum matches `MIN_PASSWORD` in `server/api.ts`, so change both together. `gender` is one of `Woman`, `Man`, `Non-binary`, `Prefer not to say`, or blank; `phone` and `eventRecommendations` are stored on the profile only. Sign-in accepts an email address or a username, not a phone number. Session tokens are random, stored hashed in SQL, sent only through HttpOnly/SameSite=Lax cookies. Email and username uniqueness are enforced by SQL. Birthday is blank or a real `YYYY-MM-DD` date; timezone must be IANA, e.g. `America/Chicago`. `locationSharing` accepts `never`, `while_using`, `always` as a stored preference; no live geolocation is implemented.
 
 `visibility` is `public`, `friends` (default), or `private`. Search exposes ID, username, display name, and bio for public/friends profiles. Detailed profiles (including city/timezone) are visible to the owner, public viewers if public, or accepted friends if friends. Private profiles are hidden from search and other users. Email, birthday, and location-sharing settings are not exposed through discovery.
 

@@ -2,14 +2,24 @@ import {pgTable,text,timestamp,bigserial,index,uniqueIndex,integer,boolean,jsonb
 import {sql} from 'drizzle-orm';
 export const calendars=pgTable('calendars',{id:text('id').primaryKey(),owner:text('owner').notNull(),name:text('name').notNull(),color:text('color').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),seq:bigserial('seq',{mode:'number'}).notNull()},t=>[index('calendars_owner').on(t.owner)]);
 export const events=pgTable('events',{id:text('id').primaryKey(),owner:text('owner').notNull(),calendar:text('calendar').notNull(),data:text('data').notNull(),token:text('token').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),seq:bigserial('seq',{mode:'number'}).notNull()},t=>[index('events_owner').on(t.owner),uniqueIndex('events_token').on(t.token)]);
-export const profiles=pgTable('profiles',{owner:text('owner').primaryKey(),name:text('name').notNull(),birthday:text('birthday').notNull().default(''),homeCity:text('home_city').notNull().default(''),timeZone:text('time_zone').notNull().default(''),locationSharing:text('location_sharing').notNull().default('never'),bio:text('bio').notNull().default(''),visibility:text('visibility').notNull().default('friends')});
+export const profiles=pgTable('profiles',{owner:text('owner').primaryKey(),name:text('name').notNull(),birthday:text('birthday').notNull().default(''),homeCity:text('home_city').notNull().default(''),timeZone:text('time_zone').notNull().default(''),locationSharing:text('location_sharing').notNull().default('never'),bio:text('bio').notNull().default(''),visibility:text('visibility').notNull().default('friends'),phone:text('phone').notNull().default(''),gender:text('gender').notNull().default(''),eventRecommendations:boolean('event_recommendations').notNull().default(false)});
 export const responses=pgTable('responses',{event:text('event').notNull(),user:text('user').notNull(),name:text('name').notNull(),status:text('status').notNull()},t=>[uniqueIndex('responses_event_user').on(t.event,t.user)]);
 
 // Legacy owner IDs remain untouched. New accounts receive independent UUIDs.
+// passwordHash is null for accounts created through Google; googleSub is null for
+// password accounts. Postgres unique indexes ignore nulls, so both stay unique.
 export const accounts=pgTable('accounts',{
   id:text('id').primaryKey(),email:text('email').notNull(),username:text('username').notNull(),
-  passwordHash:text('password_hash').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
-},t=>[uniqueIndex('accounts_email').on(t.email),uniqueIndex('accounts_username').on(t.username)]);
+  passwordHash:text('password_hash'),googleSub:text('google_sub'),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[uniqueIndex('accounts_email').on(t.email),uniqueIndex('accounts_username').on(t.username),uniqueIndex('accounts_google_sub').on(t.googleSub),
+  check('accounts_credential',sql`${t.passwordHash} is not null or ${t.googleSub} is not null`)]);
+
+// Short-lived OAuth handshake records. The browser also holds a binding cookie so a
+// stolen or attacker-generated state value cannot complete someone else's sign-in.
+export const oauthStates=pgTable('oauth_states',{
+  state:text('state').primaryKey(),verifier:text('verifier').notNull(),bindingHash:text('binding_hash').notNull(),
+  returnTo:text('return_to').notNull().default('/'),expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+},t=>[index('oauth_states_expiry').on(t.expiresAt)]);
 
 export const sessions=pgTable('sessions',{
   tokenHash:text('token_hash').primaryKey(),userId:text('user_id').notNull().references(()=>accounts.id,{onDelete:'cascade'}),

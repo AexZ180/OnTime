@@ -5,14 +5,73 @@ const state = {
     username: '',
     email: '',
     phone: '',
+    password: '',
     dob: '',
     gender: '',
     checks: {},
     googleSignIn: false
 };
-// Preview only: credentials and profile details are never sent or persisted.
+// The password stays in memory for the length of the signup flow and is sent once to
+// POST /api/auth/register on the same origin. Nothing here writes to browser storage.
 const usernamePattern = /^[A-Za-z][A-Za-z0-9_]{2,23}$/;
+// Mirrors the server policy in server/api.ts; keep the two in step.
+const MIN_PASSWORD = 15;
 const hasDisallowed = s => /\s|\p{Extended_Pictographic}|[\u200D\uFE0F\u20E3]/u.test(s);
+const hasEmoji = s => /\p{Extended_Pictographic}|[\u200D\uFE0F\u20E3]/u.test(s);
+const query = new URLSearchParams(location.search);
+// Only same-site paths are followed, so a crafted link cannot redirect sign-in elsewhere.
+const next = (value => value && value.startsWith('/') && !value.startsWith('//') && value.length <= 200 ? value : '/')(query.get('next'));
+const signInErrors = {
+    google_unavailable: 'Google sign-in is not set up for this deployment yet.',
+    google_denied: 'Google sign-in was cancelled.',
+    google_expired: 'That Google sign-in took too long. Please try again.',
+    google_email: 'Google has not verified that email address, so it cannot be used to sign in.',
+    google_exists: 'An account already uses that email address. Sign in with your password instead.',
+    google_failed: 'Google could not finish this sign-in. Please try again.'
+};
+let googleReady = true;
+let bootError = query.get('error') ? (signInErrors[query.get('error')] || 'That sign-in could not be completed. Please try again.') : '';
+async function api(path, method = 'GET', data) {
+    let response;
+    try {
+        response = await fetch(path, {
+            method,
+            credentials: 'same-origin',
+            ...(data === undefined ? {} : {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+        });
+    } catch {
+        throw new Error('We could not reach OnTime. Check your connection and try again.');
+    }
+    let result = {};
+    try {
+        result = await response.json();
+    } catch {}
+    if (!response.ok)
+        throw new Error(result.error || 'Something went wrong. Please try again.');
+    return result;
+}
+function notify(message) {
+    const target = document.getElementById('form-error');
+    if (target)
+        target.textContent = message || '';
+}
+function busy(form, on, label) {
+    const button = form?.querySelector('button[type="submit"]');
+    if (!button)
+        return;
+    if (on)
+        button.dataset.idle = button.textContent;
+    button.disabled = on;
+    button.textContent = on ? label : (button.dataset.idle || button.textContent);
+}
+function leave() {
+    location.replace(next);
+}
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
@@ -260,42 +319,47 @@ function bind() {
     ));
 }
 function login() {
-    screen.innerHTML = `<span class="section-tag">YOUR PEOPLE. YOUR PLANS.</span><h2>Welcome back.</h2><p class="subtitle">A little planning. A lot more together.</p><button class="google" type="button" id="google"><span class="google-g" aria-hidden="true">G</span>Continue with Google</button><div class="divider">or sign in with your details</div><form id="login" novalidate>${field('identity', 'Email, username, or phone number', 'text', 'you@example.com', '', '', 'autocomplete="username" maxlength="254" required')}${field('password', 'Password', 'password', 'Enter your password', '', '', 'autocomplete="current-password" maxlength="128" required')}<div class="forgot-row"><button class="text-button" id="forgot" type="button">Forgot password?</button></div><button class="primary" type="submit">Sign in</button></form><p class="switch">New around here? <a href="#signup">Create an account</a></p>`;
-    document.getElementById('google').onclick = () => {
-        state.googleSignIn = true;
-        state.step = 2;
-        location.hash = 'signup';
-    };
+    screen.innerHTML = `<span class="section-tag">YOUR PEOPLE. YOUR PLANS.</span><h2>Welcome back.</h2><p class="subtitle">A little planning. A lot more together.</p>${googleReady ? `<button class="google" type="button" id="google"><span class="google-g" aria-hidden="true">G</span>Continue with Google</button><div class="divider">or sign in with your details</div>` : ''}<form id="login" novalidate>${field('identity', 'Email or username', 'text', 'you@example.com', '', '', 'autocomplete="username" maxlength="254" required')}${field('password', 'Password', 'password', 'Enter your password', '', '', 'autocomplete="current-password" maxlength="128" required')}<div class="forgot-row"><button class="text-button" id="forgot" type="button">Forgot password?</button></div><p class="error form-error" id="form-error" aria-live="polite"></p><button class="primary" type="submit">Sign in</button></form><p class="switch">New around here? <a href="#signup">Create an account</a></p>`;
+    const googleButton = document.getElementById('google');
+    if (googleButton)
+        googleButton.onclick = () => {
+            googleButton.disabled = true;
+            // A full navigation: the handshake and the session cookie are set server-side.
+            location.href = '/api/auth/google/start?next=' + encodeURIComponent(next);
+        }
+    ;
     document.getElementById('forgot').onclick = () => {
-        openInfo('Reset your password', `<form id="reset-form" novalidate>${field('reset-email', 'Email address', 'email', 'you@example.com', '', 'Enter the email associated with your account', 'autocomplete="email" maxlength="254" required')}<div style="display: flex; gap: 12px; margin-top: 20px;"><button type="button" class="text-button" id="reset-back" style="flex: 1;">Back</button><button type="submit" class="primary" id="reset-submit" style="flex: 1;">Send recovery email</button></div></form>`);
-        document.getElementById('reset-back').onclick = () => dialog.close();
-        document.getElementById('reset-form').onsubmit = e => {
-            e.preventDefault();
-            const email = document.getElementById('reset-email').value;
-            const valid = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(email);
-            if (valid) {
-                document.getElementById('dialog-content').innerHTML = '<div style="text-align: center;"><div class="success-icon" aria-hidden="true">✓</div><h3 style="margin-top: 16px;">Check your email</h3><p>If an account exists with <strong>' + escapeHtml(email) + '</strong>, you\'ll receive a password reset link.</p><p style="font-size: 14px; color: #657875; margin-top: 20px;">Didn\'t receive it? Check your spam folder.</p></div>';
-                document.getElementById('dialog-done').focus();
-            } else {
-                err('reset-email', 'Enter a valid email address.');
-            }
-        };
-    };
-    document.getElementById('login').onsubmit = e => {
+        openInfo('Reset your password', '<p>Password reset emails are not switched on yet, so OnTime cannot send you a link. Ask the OnTime team to reset your password for you.</p><p style="font-size: 14px; color: #657875; margin-top: 20px;">If you created your account with Google, use <strong>Continue with Google</strong> instead \u2014 those accounts have no password.</p>');
+    }
+    ;
+    document.getElementById('login').onsubmit = async e => {
         e.preventDefault();
-        const v = document.getElementById('identity').value;
-        let valid = !!v && !hasDisallowed(v) && (usernamePattern.test(v) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || /^\+?[0-9]{7,15}$/.test(v));
-        err('identity', valid ? '' : 'Enter an email, username, or phone number without spaces or emojis.');
+        const form = e.target;
+        const identity = document.getElementById('identity').value.trim();
+        const valid = err('identity', !!identity && !hasDisallowed(identity) && (usernamePattern.test(identity) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity)) ? '' : 'Enter the email address or username on your account.');
         const pw = document.getElementById('password').value;
-        err('password', pw ? '' : 'Enter your password.');
-        if (valid && pw) {
-            document.getElementById('password').value = '';
-            openInfo('You\'re in the preview', '<p>Your sign-in form is ready. Account services will be connected later, so no sign-in was attempted and your password was not saved.</p>');
-        } else
+        notify('');
+        if (!(err('password', pw ? '' : 'Enter your password.') && valid)) {
             screen.querySelector('[aria-invalid="true"]')?.focus();
+            return;
+        }
+        busy(form, true, 'Signing in\u2026');
+        try {
+            await api('/api/auth/login', 'POST', {
+                identifier: identity,
+                password: pw
+            });
+            document.getElementById('password').value = '';
+            leave();
+        } catch (error) {
+            busy(form, false);
+            notify(error.message);
+            document.getElementById('password').focus();
+        }
     }
     ;
     bind();
+    notify(bootError);
 }
 function signup() {
     const step = state.step;
@@ -319,7 +383,7 @@ function signup() {
         if (step === 1) {
             stepTitle = 'Make yourself at home.';
             stepSubtitle = 'Your next good plan starts here.';
-            stepContent = `${field('username', 'Choose your username', 'text', 'e.g. jeimy_01', state.username, '3–24 characters. Start with a letter. Letters, numbers, and underscores only.', 'autocomplete="username" maxlength="24" required')}${field('email', 'Email address', 'email', 'you@example.com', state.email, '', 'autocomplete="email" maxlength="254" required')}${field('phone', 'Phone number · optional', 'tel', '+1 (555) 000-0000', state.phone, 'Enter a phone number or leave blank.', 'autocomplete="tel" maxlength="20"')}${field('new-password', 'Create a password', 'password', 'At least 12 characters', '', '12–128 characters. No spaces or emojis.', 'autocomplete="new-password" minlength="12" maxlength="128" required')}`;
+            stepContent = `${field('username', 'Choose your username', 'text', 'e.g. jeimy_01', state.username, '3–24 characters. Start with a letter. Letters, numbers, and underscores only.', 'autocomplete="username" maxlength="24" required')}${field('email', 'Email address', 'email', 'you@example.com', state.email, '', 'autocomplete="email" maxlength="254" required')}${field('phone', 'Phone number · optional', 'tel', '+1 (555) 000-0000', state.phone, 'Enter a phone number or leave blank.', 'autocomplete="tel" maxlength="20"')}${field('new-password', 'Create a password', 'password', 'At least 15 characters', state.password, '15–128 characters. Emojis aren\'t supported.', 'autocomplete="new-password" minlength="15" maxlength="128" required')}`;
         } else if (step === 2) {
             stepTitle = 'A little about you.';
             stepSubtitle = 'Let\'s put a person behind the plans.';
@@ -331,20 +395,20 @@ function signup() {
         }
     }
     
-    const backText = (step === 1 || (isGoogle && step === 2)) ? 'Back to sign in' : 'Back';
+    const backText = isGoogle ? (step === 2 ? 'Skip for now' : 'Back') : (step === 1 ? 'Back to sign in' : 'Back');
     const stepIndicators = Array.from({length: totalSteps}, (_, n) => n + 1).map(n => `<span class="${n <= displayStep ? 'active' : ''}"></span>`).join('');
-    const buttonText = (isGoogle && step === 3) || (!isGoogle && step === 3) ? 'Create account' : 'Continue';
-    const smallNote = ((isGoogle && step === 3) || (!isGoogle && step === 3)) ? '<p class="small-note">Recommendations are optional and won\'t affect account creation.</p>' : '';
+    // A Google account already exists by this point, so it is finished, not created.
+    const buttonText = step === 3 ? (isGoogle ? 'Finish setting up' : 'Create account') : 'Continue';
+    const smallNote = step === 3 ? '<p class="small-note">Recommendations are optional and won\'t affect your account.</p>' : '';
     
-    screen.innerHTML = `<div data-signup><button type="button" class="back" id="back">← ${backText}</button><div class="steps" aria-label="Step ${displayStep} of ${totalSteps}">${stepIndicators}</div><span class="section-tag">STEP ${displayStep} OF ${totalSteps}</span><h2>${stepTitle}</h2><p class="subtitle">${stepSubtitle}</p><form id="signup" novalidate>${stepContent}<button class="primary" type="submit">${buttonText}</button></form>${smallNote}</div>`;
+    screen.innerHTML = `<div data-signup><button type="button" class="back" id="back">← ${backText}</button><div class="steps" aria-label="Step ${displayStep} of ${totalSteps}">${stepIndicators}</div><span class="section-tag">STEP ${displayStep} OF ${totalSteps}</span><h2>${stepTitle}</h2><p class="subtitle">${stepSubtitle}</p><form id="signup" novalidate>${stepContent}<p class="error form-error" id="form-error" aria-live="polite"></p><button class="primary" type="submit">${buttonText}</button></form>${smallNote}</div>`;
     
     document.getElementById('back').onclick = () => {
         remember();
         if (state.googleSignIn) {
             if (state.step === 2) {
-                state.googleSignIn = false;
-                state.step = 1;
-                location.hash = 'login';
+                // The Google handshake already created the account and the session.
+                leave();
             } else {
                 state.step--;
                 signup();
@@ -370,16 +434,18 @@ function signup() {
         openInfo('Terms & conditions', '<p><strong>Preview terms for OnTime</strong></p><h3>Planning & reminders</h3><p>You are responsible for tracking your events, deadlines, and commitments. Notifications may be delayed or unavailable. OnTime does not guarantee reminders and is not responsible for missed obligations.</p><h3>AI assistance</h3><p>OnTime was created with AI assistance. AI-powered suggestions may be inaccurate; review them before relying on them.</p><h3>Location choices</h3><p>Some features need location access while you use them. Permission will be requested separately. You can decline and continue using features that do not need location. No background location tracking is intended, and this frontend does not access your location.</p><p>These are draft acknowledgments for the frontend preview; final service terms and privacy information will be added before account registration is enabled.</p>');
     }
     );
-    document.getElementById('signup').onsubmit = e => {
+    document.getElementById('signup').onsubmit = async e => {
         e.preventDefault();
         remember();
+        notify('');
         let valid = true;
         
         if (!isGoogle && step === 1) {
             valid = err('username', usernamePattern.test(state.username) ? '' : 'Use 3–24 letters, numbers, or underscores; start with a letter.') && valid;
             valid = err('email', /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(state.email) ? '' : 'Enter a valid email without spaces or emojis.') && valid;
             const pw = document.getElementById('new-password').value;
-            valid = err('new-password', pw.length >= 12 && pw.length <= 128 && !hasDisallowed(pw) ? '' : 'Use 12–128 characters without spaces or emojis.') && valid;
+            state.password = pw;
+            valid = err('new-password', pw.length >= MIN_PASSWORD && pw.length <= 128 && !hasEmoji(pw) ? '' : `Use ${MIN_PASSWORD}–128 characters without emojis.`) && valid;
         }
         
         if ((isGoogle && step === 2) || (!isGoogle && step === 2)) {
@@ -395,18 +461,25 @@ function signup() {
             document.getElementById('checks-error').textContent = valid ? '' : 'Please agree to the Terms & Conditions to continue.';
         }
         
-        if (valid) {
-            const maxSteps = isGoogle ? 3 : 3;
-            if (step < maxSteps) {
-                state.step++;
-                signup();
-                focusHeading();
-            } else
-                complete();
-        } else {
+        if (!valid) {
             screen.querySelector('[aria-invalid="true"]')?.focus();
-            if ((isGoogle && step === 3) || (!isGoogle && step === 3))
+            if (step === 3)
                 screen.querySelector('input:not(:checked)')?.focus();
+            return;
+        }
+        if (step < 3) {
+            state.step++;
+            signup();
+            focusHeading();
+            return;
+        }
+        const form = e.target;
+        busy(form, true, isGoogle ? 'Finishing…' : 'Creating your account…');
+        try {
+            await complete();
+        } catch (error) {
+            busy(form, false);
+            notify(/already exists/i.test(error.message) ? 'That email address or username is already taken. Go back to step 1 to choose another.' : error.message);
         }
     }
     ;
@@ -418,28 +491,40 @@ function remember() {
         if (i)
             state[k] = i.value;
     }
+    const password = document.getElementById('new-password');
+    if (password)
+        state.password = password.value;
     for (const k of ['terms', 'recommendations']) {
         const i = document.getElementById(k);
         if (i)
             state.checks[k] = i.checked;
     }
 }
-function complete() {
-    screen.innerHTML = `<div class="success-icon" aria-hidden="true">✓</div><span class="section-tag">ALL SET FOR THE NEXT STEP</span><h2>Looks good, <span id="chosen-name"></span>.</h2><p class="subtitle">You've completed the signup preview.</p><div class="summary">No account has been created, and your details haven't been saved. Your team can connect this flow to account services next.</div><button class="primary" id="finish">Back to sign in</button>`;
-    document.getElementById('chosen-name').textContent = state.username;
-    document.getElementById('finish').onclick = () => {
-        state.step = 1;
-        state.username = '';
-        state.email = '';
-        state.phone = '';
-        state.dob = '';
-        state.gender = '';
-        state.checks = {};
-        state.googleSignIn = false;
-        location.hash = 'login';
-    }
-    ;
+async function complete() {
+    const profile = {
+        birthday: state.dob || '',
+        gender: state.gender || '',
+        eventRecommendations: !!state.checks.recommendations,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    };
+    if (state.googleSignIn)
+        // The Google callback already created this account; finish its profile.
+        await api('/api/profile', 'PATCH', profile);
+    else
+        await api('/api/auth/register', 'POST', {
+            email: state.email.trim().toLowerCase(),
+            username: state.username.trim().toLowerCase(),
+            password: state.password,
+            name: state.username.trim(),
+            phone: state.phone.trim(),
+            ...profile
+        });
+    state.password = '';
+    screen.innerHTML = `<div class="success-icon" aria-hidden="true">\u2713</div><span class="section-tag">YOUR ACCOUNT IS READY</span><h2>Welcome to OnTime, <span id="chosen-name"></span>.</h2><p class="subtitle">You're signed in. Let's make room for the good stuff.</p><div class="summary">Taking you to your calendar\u2026</div><button class="primary" id="finish">Go to my calendar</button>`;
+    document.getElementById('chosen-name').textContent = state.username || 'friend';
+    document.getElementById('finish').onclick = leave;
     focusHeading();
+    setTimeout(leave, 1500);
 }
 function route() {
     if (location.hash === '#signup')
@@ -462,8 +547,40 @@ document.addEventListener('pointerdown', e => {
 }
 );
 addEventListener('hashchange', () => {
+    bootError = '';
     route();
     focusHeading();
 }
 );
+async function boot() {
+    // Keep the handshake parameters out of the address bar so a refresh cannot replay them.
+    if (location.search)
+        history.replaceState({}, '', location.pathname + location.hash);
+    let ready = false;
+    try {
+        ready = (await api('/api/auth/providers')).google === true;
+    } catch {}
+    let user = null;
+    try {
+        user = (await api('/api/auth/me')).user;
+    } catch {}
+    if (user && query.get('google') === 'new') {
+        state.googleSignIn = true;
+        state.username = user.username;
+        state.email = user.email;
+        state.step = 2;
+        signup();
+        focusHeading();
+        return;
+    }
+    if (user && !bootError) {
+        leave();
+        return;
+    }
+    if (ready !== googleReady) {
+        googleReady = ready;
+        route();
+    }
+}
 route();
+boot();

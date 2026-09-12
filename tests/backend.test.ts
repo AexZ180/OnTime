@@ -20,7 +20,7 @@ test('full SQL account, profile, friendship, planning, RSVP and restart lifecycl
   let db=drizzle(client,{schema});
   const connection=():DatabaseConnection=>({db,client,mode:'local',close:()=>client.close()});
   await migrateDatabase(connection());
-  const context=():Context=>({db,mode:'local',origins:['http://localhost:5173'],secureCookies:false,clientAddress:'test'});
+  const context=():Context=>({db,mode:'local',origins:['http://localhost:5173'],appOrigin:'http://localhost:5173',google:null,secureCookies:false,clientAddress:'test'});
   async function call(path:string,method='GET',data?:unknown,cookie='',expected=200){
     const response=await handleRequest(new Request('http://localhost:5173/api'+path,{method,headers:{'content-type':'application/json',origin:'http://localhost:5173',cookie},...(data===undefined?{}:{body:JSON.stringify(data)})}),context());
     // Endpoint payloads vary; runtime assertions below verify their contracts.
@@ -35,7 +35,7 @@ test('full SQL account, profile, friendship, planning, RSVP and restart lifecycl
     assert.match(a.response.headers.get('set-cookie')!,/HttpOnly; SameSite=Lax/);
     await call('/auth/register','POST',{email:'alice@example.com',username:'another',password,name:'Duplicate'},'',409);
     const [account]=await db.select().from(schema.accounts).where(eq(schema.accounts.id,a.value.user.id));
-    assert.match(account.passwordHash,/^\$argon2id\$/);assert.notEqual(account.passwordHash,password);
+    assert.ok(account.passwordHash);assert.match(account.passwordHash,/^\$argon2id\$/);assert.notEqual(account.passwordHash,password);
     const [session]=await db.select().from(schema.sessions).where(eq(schema.sessions.userId,a.value.user.id));
     assert.equal(session.tokenHash,digest(a.cookie.split('=')[1]));
     await call('/auth/login','POST',{identifier:'alice',password:'wrong'},'',401);
@@ -107,4 +107,85 @@ test('full duration, adjacent blocks, gaps, endpoint boundaries, preferences and
   assert.equal(availabilityAt(a,b,[{userId:'a',start,end,status:'preferred'}],[{userId:'a',start:'2030-10-01T16:00:00Z',end}]),'preferred');
   const slots=rankSlots({windows:[{start:'2030-10-01T10:00:00-05:00',end}],durationMinutes:60,minParticipants:1},[{userId:'a',required:true}],[{userId:'a',start,end,status:'available'}],[]);
   assert.equal(slots.length,5);assert.equal(slots[0].start,'2030-10-01T15:00:00.000Z');assert.equal(slots[0].qualified,true);
+});
+
+test('Google sign-in creates, reuses, and refuses to capture accounts',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'ontime-google-'));
+  const client=new PGlite(directory);await client.waitReady;
+  const db=drizzle(client,{schema});
+  await migrateDatabase({db,client,mode:'local',close:()=>client.close()} as DatabaseConnection);
+  const google={clientId:'test-client.apps.googleusercontent.com',clientSecret:'test-secret',redirectUri:'http://localhost:5173/api/auth/google/callback'};
+  const context=():Context=>({db,mode:'local',origins:['http://localhost:5173'],appOrigin:'http://localhost:5173',google,secureCookies:false,clientAddress:'test'});
+  const realFetch=globalThis.fetch;
+  // Stands in for Google's token endpoint. The handler reads the ID token it returns
+  // without checking the signature, exactly as it does against the real endpoint.
+  let claims:Record<string,unknown>={};
+  globalThis.fetch=(async(input:RequestInfo|URL)=>{
+    assert.equal(String(input),'https://oauth2.googleapis.com/token');
+    const payload=Buffer.from(JSON.stringify({iss:'https://accounts.google.com',aud:google.clientId,exp:Math.floor(Date.now()/1000)+300,...claims})).toString('base64url');
+    return Response.json({id_token:`eyJhbGciOiJSUzI1NiJ9.${payload}.signature`});
+  }) as typeof globalThis.fetch;
+  const get=(path:string,cookie='')=>handleRequest(new Request('http://localhost:5173'+path,{headers:cookie?{cookie}:{}}),context());
+  async function handshake(){
+    const started=await get('/api/auth/google/start?next=%2F');
+    assert.equal(started.status,302);
+    const target=new URL(started.headers.get('location')!);
+    assert.equal(target.origin+target.pathname,'https://accounts.google.com/o/oauth2/v2/auth');
+    assert.equal(target.searchParams.get('code_challenge_method'),'S256');
+    const binding=started.headers.get('set-cookie')!.split(';')[0];
+    return {state:target.searchParams.get('state')!,binding};
+  }
+  const finish=async(cookie='')=>{
+    const {state,binding}=await handshake();
+    return get(`/api/auth/google/callback?code=demo&state=${state}`,[binding,cookie].filter(Boolean).join('; '));
+  };
+  const session=(response:Response)=>response.headers.getSetCookie().find(c=>c.startsWith('ontime_session='))?.split(';')[0]??'';
+  try{
+    claims={sub:'google-ollie',email:'Ollie@example.com',email_verified:true,name:'Ollie Otter'};
+    const first=await finish();
+    assert.equal(first.status,302);
+    // A brand new account lands on the profile steps; the account already exists.
+    assert.equal(first.headers.get('location'),'http://localhost:5173/login.html?google=new&next=%2F');
+    const cookie=session(first);assert.ok(cookie);
+    const me=await (await get('/api/auth/me',cookie)).json() as {user:{username:string;email:string}};
+    assert.equal(me.user.email,'ollie@example.com');assert.equal(me.user.username,'ollie');
+
+    // Returning with the same Google account reuses it and goes straight to the app.
+    const again=await finish();
+    assert.equal(again.headers.get('location'),'http://localhost:5173/');
+    const returning=await (await get('/api/auth/me',session(again))).json() as {user:{id:string}};
+    const originally=await (await get('/api/auth/me',cookie)).json() as {user:{id:string}};
+    assert.equal(returning.user.id,originally.user.id);
+    assert.equal((await db.select().from(schema.accounts)).length,1);
+
+    // A second Google identity whose email local part is taken still gets a username.
+    claims={sub:'google-other',email:'ollie@other.example',email_verified:true,name:'Ollie Two'};
+    const second=await finish();
+    assert.equal(second.headers.get('location'),'http://localhost:5173/login.html?google=new&next=%2F');
+    const other=await (await get('/api/auth/me',session(second))).json() as {user:{username:string}};
+    assert.notEqual(other.user.username,'ollie');assert.match(other.user.username,/^ollie[0-9a-f]{4}$/);
+
+    // An unverified Google email is refused rather than trusted.
+    claims={sub:'google-unverified',email:'nobody@example.com',email_verified:false,name:'Nobody'};
+    assert.equal((await finish()).headers.get('location'),'http://localhost:5173/login.html?error=google_email');
+
+    // Password accounts are never adopted: registration does not verify email, so
+    // whoever registered the address first must not capture the Google sign-in.
+    const password='A long demo password 2026!';
+    const registered=await handleRequest(new Request('http://localhost:5173/api/auth/register',{method:'POST',headers:{'content-type':'application/json',origin:'http://localhost:5173'},body:JSON.stringify({email:'maya@example.com',username:'maya',password,name:'Maya'})}),context());
+    assert.equal(registered.status,201);
+    claims={sub:'google-maya',email:'maya@example.com',email_verified:true,name:'Maya'};
+    const blocked=await finish();
+    assert.equal(blocked.headers.get('location'),'http://localhost:5173/login.html?error=google_exists');
+    assert.equal(session(blocked),'');
+
+    // The handshake is single use and requires the browser's binding cookie.
+    const {state,binding}=await handshake();
+    assert.equal((await get(`/api/auth/google/callback?code=demo&state=${state}`)).headers.get('location'),'http://localhost:5173/login.html?error=google_expired');
+    assert.equal((await get(`/api/auth/google/callback?code=demo&state=${state}`,binding)).headers.get('location'),'http://localhost:5173/login.html?error=google_expired');
+
+    // Google-only accounts have no password to guess.
+    const attempt=await handleRequest(new Request('http://localhost:5173/api/auth/login',{method:'POST',headers:{'content-type':'application/json',origin:'http://localhost:5173'},body:JSON.stringify({identifier:'ollie',password:'anything at all!!'})}),context());
+    assert.equal(attempt.status,401);
+  }finally{globalThis.fetch=realFetch;await client.close();await rm(directory,{recursive:true,force:true})}
 });

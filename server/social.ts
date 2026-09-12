@@ -6,7 +6,8 @@ import type {Database} from './database';
 import type {User} from './auth';
 import {body,ensure,json,id,username,timeZone,birthday} from './http';
 
-export const profilePatch=z.object({name:z.string().trim().min(1).max(100).optional(),username:username.optional(),birthday:birthday.optional(),homeCity:z.string().trim().max(100).optional(),timeZone:timeZone.optional(),locationSharing:z.enum(['never','while_using','always']).optional(),bio:z.string().trim().max(500).optional(),visibility:z.enum(['public','friends','private']).optional()}).strict();
+export const gender=z.enum(['Woman','Man','Non-binary','Prefer not to say','']);
+export const profilePatch=z.object({name:z.string().trim().min(1).max(100).optional(),username:username.optional(),birthday:birthday.optional(),homeCity:z.string().trim().max(100).optional(),timeZone:timeZone.optional(),locationSharing:z.enum(['never','while_using','always']).optional(),bio:z.string().trim().max(500).optional(),visibility:z.enum(['public','friends','private']).optional(),phone:z.string().trim().max(20).optional(),gender:gender.optional(),eventRecommendations:z.boolean().optional()}).strict();
 export const publicFields={id:accounts.id,username:accounts.username,name:profiles.name,bio:profiles.bio};
 export async function relationship(db:Database,a:string,b:string){
   const [low,high]=[a,b].sort();
