@@ -13,6 +13,7 @@ import {rankSlots,availabilityAt} from '../server/scheduling';
 import {digest,rateLimit} from '../server/auth';
 import {nodeHeaders} from '../server/http';
 import {geohash,normalizeTicketmasterEvent} from '../server/discovery';
+import {buildGrid,toBlocks,fromBlocks,dailyWindows} from '../lib/polls';
 
 const password='A long demo password 2026!';
 const start='2030-10-01T15:00:00Z',end='2030-10-01T17:00:00Z';
@@ -306,4 +307,63 @@ test('friend groups, per-friend sharing, and what a busy viewer never receives',
     assert.deepEqual(await feed(bob.cookie),[]);
     assert.deepEqual(await feed(alice.cookie),[]);
   }finally{await client.close();await rm(directory,{recursive:true,force:true})}
+});
+
+test('poll grid maths produce availability the server will accept',async()=>{
+  // Local times, because the poll screen paints in the viewer's own day.
+  const day=(date:string,h:number,m=0)=>new Date(new Date(date+'T00:00:00').setHours(h,m,0,0)).toISOString();
+  const windows=dailyWindows('2030-10-01','2030-10-03',9*60,17*60);
+  assert.equal(windows.length,3);
+  assert.equal(windows[0].start,day('2030-10-01',9));
+  assert.equal(windows[0].end,day('2030-10-01',17));
+  // One window per day never overlaps the next, which is what the server checks.
+  assert.ok(windows.every((w,i)=>i===0||Date.parse(w.start)>=Date.parse(windows[i-1].end)));
+  assert.deepEqual(dailyWindows('2030-10-03','2030-10-01',9*60,17*60),[],'a backwards range yields nothing');
+  assert.deepEqual(dailyWindows('2030-10-01','2030-10-02',17*60,9*60),[],'an end before the start yields nothing');
+  assert.equal(dailyWindows('2030-10-01','2030-12-31',9*60,17*60).length,31,'capped at the server maximum');
+
+  const grid=buildGrid(windows);
+  assert.deepEqual(grid.days,['2030-10-01','2030-10-02','2030-10-03']);
+  assert.equal(grid.times.length,16,'eight hours of half-hour cells');
+  assert.equal(grid.times[0],9*60);
+  assert.equal(grid.index.get('2030-10-01#'+9*60),Date.parse(day('2030-10-01',9)),'the grid indexes cells by timestamp');
+
+  // An irregular poll leaves a real gap rather than inventing a cell.
+  const ragged=buildGrid([{start:day('2030-10-01',9),end:day('2030-10-01',17)},{start:day('2030-10-02',9),end:day('2030-10-02',11)}]);
+  assert.equal(ragged.index.get('2030-10-02#'+10*60),Date.parse(day('2030-10-02',10)));
+  assert.equal(ragged.index.get('2030-10-02#'+15*60),undefined,'the short day has no afternoon cell');
+
+  // Painting four touching cells must come back as one block, not four.
+  const paint=new Map<number,string>();
+  for(const h of [10,10.5,11,11.5])paint.set(Date.parse(day('2030-10-01',Math.floor(h),h%1?30:0)),'available');
+  paint.set(Date.parse(day('2030-10-01',14)),'preferred');
+  paint.set(Date.parse(day('2030-10-02',10)),'available');
+  const blocks=toBlocks(paint,windows);
+  assert.equal(blocks.length,3);
+  assert.deepEqual(blocks[0],{start:day('2030-10-01',10),end:day('2030-10-01',12),status:'available'});
+  assert.deepEqual(blocks[1],{start:day('2030-10-01',14),end:day('2030-10-01',14,30),status:'preferred'},'a lone cell is half an hour');
+  // Every rule PUT /polls/:id/availability enforces, checked before it is ever sent.
+  assert.ok(blocks.every((b,i)=>Date.parse(b.end)>Date.parse(b.start)&&(i===0||Date.parse(b.start)>=Date.parse(blocks[i-1].end))),'sorted and non-overlapping');
+  assert.ok(blocks.every(b=>windows.some(w=>Date.parse(b.start)>=Date.parse(w.start)&&Date.parse(b.end)<=Date.parse(w.end))),'every block sits inside a window');
+  assert.ok(blocks.length<=500);
+  // A neighbour of a different status stays its own block rather than merging.
+  assert.equal(toBlocks(new Map([[Date.parse(day('2030-10-01',10)),'available'],[Date.parse(day('2030-10-01',10,30)),'maybe']]),windows).length,2);
+  // A cell outside every window is dropped rather than sent for the server to refuse.
+  assert.deepEqual(toBlocks(new Map([[Date.parse(day('2030-10-01',3)),'available']]),windows),[]);
+
+  // Reloading a saved poll repaints exactly the cells that were painted.
+  const round=fromBlocks(blocks);
+  assert.equal(round.size,paint.size);
+  for(const [stamp,status] of paint)assert.equal(round.get(stamp),status);
+  assert.deepEqual(toBlocks(round,windows),blocks,'and survives another trip');
+
+  // A full week painted end to end still fits well inside the 500-block ceiling.
+  // These windows abut exactly at midnight, so this is the case where a naive merge would
+  // span two days and produce a block the server refuses as belonging to no single window.
+  const week=dailyWindows('2030-10-07','2030-10-13',0,24*60);
+  const full=new Map<number,string>();
+  for(const w of week)for(let t=Date.parse(w.start);t<Date.parse(w.end);t+=30*60000)full.set(t,'available');
+  const packed=toBlocks(full,week);
+  assert.equal(packed.length,7,'one block per day, never merged across a window edge');
+  assert.ok(packed.every(b=>week.some(w=>Date.parse(b.start)>=Date.parse(w.start)&&Date.parse(b.end)<=Date.parse(w.end))),'each still inside one window');
 });

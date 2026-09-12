@@ -2,7 +2,7 @@
 
 The Node backend implements independent accounts, profiles, friend requests, friend groups with per-friend calendar sharing, member-only scheduling polls, ranked overlap, confirmation into a shared calendar event, and RSVP. The existing calendar CRUD/import endpoints now use these accounts.
 
-The sign-in screen is connected. `public/login.html`, `public/login.css`, `public/login.js`, and `public/ollie.webp` are served as static assets at `/login` (also `/login.html`) and call the endpoints below on the same origin. The calendar app links to `/login` instead of the old ChatGPT sign-in link, and its sidebar has a sign-out control. The Friends view in the app is connected: it manages requests, groups, and sharing levels, and friends' calendars appear in the sidebar and the week grid alongside your own. The poll screens are still unconnected.
+The sign-in screen is connected. `public/login.html`, `public/login.css`, `public/login.js`, and `public/ollie.webp` are served as static assets at `/login` (also `/login.html`) and call the endpoints below on the same origin. The calendar app links to `/login` instead of the old ChatGPT sign-in link, and its sidebar has a sign-out control. The Friends view in the app is connected: it manages requests, groups, and sharing levels, and friends' calendars appear in the sidebar and the week grid alongside your own. The Polls view is connected too: it creates polls, paints availability on a drag grid, shows the group overlap, and confirms a time into everyone's calendar.
 
 ## Start on your machine
 
