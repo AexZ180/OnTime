@@ -7,7 +7,7 @@
 <meta name="description" content="Your OnTime dashboard. See your plans and make time for your people.">
 <title>OnTime · Your dashboard</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23294846'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23f7f3e8' stroke-width='2'/%3E%3Cpath d='M16 9v7l5 3' fill='none' stroke='%23f7f3e8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/dashboard.css">
+<link rel="stylesheet" href="style.css">
 </head>
 <body class="dashboard-body">
 
@@ -19,14 +19,6 @@
       </a>
     </div>
     <div class="header-right">
-      <nav class="dashboard-nav" aria-label="OnTime features">
-        <a href="/">Calendar</a>
-        <a href="/availability">Find a time</a>
-        <a href="/friends">Friends</a>
-        <a href="/polls">Polls</a>
-        <a href="/discover">Local events</a>
-      </nav>
-      <button class="text-button dashboard-signout" id="sign-out" type="button">Sign out</button>
       <button class="profile-btn" id="profile-btn" type="button" aria-label="Open your profile">🦦</button>
     </div>
   </header>
@@ -51,9 +43,7 @@
             <span class="eyebrow">YOUR PLANS</span>
             <h1 id="selected-day-title"></h1>
           </div>
-          <a class="primary-button small" href="/">Open planner</a>
         </div>
-        <p class="dashboard-status" id="dashboard-status" role="status" aria-live="polite"></p>
         <div class="schedule-list" id="schedule-list"></div>
       </section>
     </main>
@@ -91,42 +81,25 @@
       </div>
       <form class="profile-form" id="profile-form">
         <div class="profile-field">
-          <label for="profile-name">Display name</label>
-          <input id="profile-name" name="name" type="text" autocomplete="name" maxlength="100" required>
-        </div>
-        <div class="profile-field">
           <label for="profile-username">Username</label>
-          <input id="profile-username" name="username" type="text" autocomplete="username" maxlength="24" required>
+          <input id="profile-username" name="username" type="text" autocomplete="username" maxlength="24">
         </div>
         <div class="profile-field">
           <label for="profile-email">Email</label>
-          <input id="profile-email" name="email" type="email" autocomplete="email" maxlength="254" readonly>
+          <input id="profile-email" name="email" type="email" autocomplete="email" maxlength="254">
         </div>
         <div class="profile-field">
-          <label for="profile-city">Home city <span>optional</span></label>
-          <input id="profile-city" name="homeCity" type="text" autocomplete="address-level2" maxlength="100" placeholder="Chicago, IL">
+          <label for="profile-password">Password</label>
+          <input id="profile-password" name="password" type="password" autocomplete="new-password" maxlength="128">
         </div>
-        <div class="profile-field">
-          <label for="profile-timezone">Time zone</label>
-          <input id="profile-timezone" name="timeZone" type="text" maxlength="100" placeholder="America/Chicago" required>
-        </div>
-        <div class="profile-field">
-          <label for="profile-location">Location use</label>
-          <select id="profile-location" name="locationSharing">
-            <option value="never">Never use my location</option>
-            <option value="while_using">Only while I use OnTime</option>
-            <option value="always">Always use my location</option>
-          </select>
-        </div>
-        <p class="profile-message" id="profile-message" role="status" aria-live="polite"></p>
         <div class="profile-actions">
-          <button class="delete-button" id="profile-sign-out" type="button">Sign out</button>
+          <button class="delete-button" id="delete-account" type="button">Delete demo account</button>
           <button class="primary-button" type="submit">Save changes</button>
         </div>
       </form>
     </div>
   </dialog>
 
-  <script src="/dashboard.js"></script>
+  <script src="dashboard.js"></script>
 </body>
 </html>
