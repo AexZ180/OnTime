@@ -40,12 +40,12 @@ Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=tru
 
 - edit site code under `app/`
 - `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
+- `.openai/hosting.json` declares optional Sites R2 bindings (D1 is unused; `"d1": null`)
 - `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
+- `db/index.ts` connects to TigerData/Postgres via `DATABASE_URL` (read from the Worker environment) using `postgres` + `drizzle-orm/postgres-js`
+- `db/schema.ts` defines the Postgres schema (`calendars`, `events`, `profiles`, `responses`)
+- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DATABASE_URL`/`BUCKET` bindings—update these declarations if binding names change
+- `examples/d1/` contains an unused legacy D1 example surface, kept for reference only
 - `drizzle.config.ts` supports local migration generation when needed
 
 ## Workspace Auth Headers
@@ -98,22 +98,22 @@ SIWC establishes identity only; it does not prove workspace membership. Use the 
 
 Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
 
-## Local D1 migrations
+## TigerData (Postgres) setup
 
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
+The app stores all data (profiles, calendars, events, RSVP responses) in a TigerData Cloud Postgres service via Drizzle.
 
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
-```
+- **Local dev**: create a gitignored `.dev.vars` file at the repo root with `DATABASE_URL=<your TigerData connection string>`. Wrangler/`@cloudflare/vite-plugin` load it automatically for `npm run dev`/`npm start`.
+- **Drizzle CLI** (`db:generate`/`db:migrate`): reads `DATABASE_URL` from a root `.env` file (not `.dev.vars`, since the CLI runs under plain Node rather than the Worker runtime).
+- **Production**: set the `DATABASE_URL` secret through the Sites hosting platform's secrets mechanism, or `wrangler secret put DATABASE_URL` if you have direct Wrangler access. This isn't handled by any script in this repo.
 
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
+After changing `db/schema.ts`, run `npm run db:generate` to produce a new migration, then apply it with `npm run db:migrate` (or run the generated SQL under `drizzle/` manually against your TigerData database).
 
 ## Diagnostic Commands
 
 - `npm run install:ci`: perform the one locked dependency install
 - `npm run dev`: start the Vite/Vinext development server
 - `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
+- `npm run start`: preview the built Worker locally with R2 support (talks to TigerData via `DATABASE_URL`)
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
 When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
@@ -123,4 +123,5 @@ The portable build runs Vinext directly without a host `timeout` command. The ma
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- [Drizzle PostgreSQL Guide](https://orm.drizzle.team/docs/get-started/postgresql-new)
+- [TigerData Cloud Documentation](https://docs.tigerdata.com/)
