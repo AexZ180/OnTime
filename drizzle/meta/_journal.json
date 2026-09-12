@@ -8,6 +8,13 @@
       "when": 1789177902947,
       "tag": "0000_tired_selene",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789187709433,
+      "tag": "0001_chemical_lake",
+      "breakpoints": true
     }
   ]
 }
