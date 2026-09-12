@@ -11,6 +11,7 @@ import {migrateDatabase,type DatabaseConnection} from '../server/database';
 import {handleRequest,type Context} from '../server/api';
 import {rankSlots,availabilityAt} from '../server/scheduling';
 import {digest,rateLimit} from '../server/auth';
+import {nodeHeaders} from '../server/http';
 import {geohash,normalizeTicketmasterEvent} from '../server/discovery';
 
 const password='A long demo password 2026!';
@@ -185,6 +186,19 @@ test('Google sign-in creates, reuses, and refuses to capture accounts',async()=>
     const blocked=await finish();
     assert.equal(blocked.headers.get('location'),'http://localhost:5173/login.html?error=google_exists');
     assert.equal(session(blocked),'');
+
+    // The response object is not what the browser sees. server/main.ts hands these
+    // headers to Node, and collapsing the pair there dropped the session cookie and
+    // left the handshake cleanup, so a finished Google sign-in arrived signed out.
+    claims={sub:'google-wire',email:'wire@example.com',email_verified:true,name:'Wire'};
+    const wire=await finish();
+    const served=nodeHeaders(wire)['set-cookie'];
+    assert.ok(Array.isArray(served)&&served.length===2,'both cookies must reach the browser');
+    const servedSession=served.find(c=>c.startsWith('ontime_session='))!;
+    assert.ok(servedSession,'the session cookie must survive serialization');
+    assert.ok(served.some(c=>c.startsWith('ontime_oauth=')),'the handshake cookie is still cleared');
+    const signedIn=await (await get('/api/auth/me',servedSession.split(';')[0])).json() as {user:{email:string}|null};
+    assert.equal(signedIn.user?.email,'wire@example.com');
 
     // The handshake is single use and requires the browser's binding cookie.
     const {state,binding}=await handshake();
