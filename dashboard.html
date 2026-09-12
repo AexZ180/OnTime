@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f7f3e8">
+<meta name="description" content="Your OnTime dashboard. See your plans and make time for your people.">
+<title>OnTime · Your dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23294846'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23f7f3e8' stroke-width='2'/%3E%3Cpath d='M16 9v7l5 3' fill='none' stroke='%23f7f3e8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-body">
+
+  <header class="app-header">
+    <div class="header-left">
+      <div class="ollie-mark" aria-hidden="true"><span class="ollie-face-mini"></span></div>
+      <a class="brand-lockup" href="dashboard.html" aria-label="OnTime home">
+        <span class="brand-kicker">OnTime</span>
+      </a>
+    </div>
+    <div class="header-right">
+      <button class="profile-btn" id="profile-btn" type="button" aria-label="Open your profile">🦦</button>
+    </div>
+  </header>
+
+  <div class="dashboard-shell">
+    <aside class="calendar-panel" aria-label="Calendar">
+      <div class="calendar-toolbar">
+        <button class="calendar-nav" id="prev-month" type="button" aria-label="Previous month">‹</button>
+        <span class="calendar-month-label" id="calendar-month-label"></span>
+        <button class="calendar-nav" id="next-month" type="button" aria-label="Next month">›</button>
+      </div>
+      <div class="calendar-weekdays" aria-hidden="true">
+        <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+      </div>
+      <div class="mini-calendar" id="mini-calendar" role="group" aria-label="Pick a date"></div>
+    </aside>
+
+    <main class="main-panel">
+      <section class="schedule-card" aria-label="Plans for the selected day">
+        <div class="day-header">
+          <div>
+            <span class="eyebrow">YOUR PLANS</span>
+            <h1 id="selected-day-title"></h1>
+          </div>
+        </div>
+        <div class="schedule-list" id="schedule-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="ollie-chat" id="ollie-chat">
+    <button class="ollie-chat-toggle" id="ollie-chat-toggle" type="button" aria-label="Chat with Ollie">
+      <span class="ollie-face-small" aria-hidden="true"></span>
+    </button>
+    <div class="ollie-chat-window hidden" id="ollie-chat-window">
+      <div class="chat-header">
+        <div class="chat-title-wrap">
+          <span class="ollie-face-mini" aria-hidden="true"></span>
+          <strong>Ollie</strong>
+          <span class="chat-badge">Beta</span>
+        </div>
+        <button class="chat-close" id="close-chat" type="button" aria-label="Close chat">×</button>
+      </div>
+      <div class="chat-body"></div>
+      <form class="chat-form" id="chat-form">
+        <input id="chat-input" type="text" placeholder="Message Ollie…" autocomplete="off" aria-label="Message Ollie">
+        <button class="primary-button small" type="submit">Send</button>
+      </form>
+    </div>
+  </div>
+
+  <dialog id="profile-dialog" aria-labelledby="profile-dialog-title">
+    <div class="profile-dialog-shell">
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">YOUR ACCOUNT</span>
+          <h2 id="profile-dialog-title">Your profile</h2>
+        </div>
+        <button class="dialog-close" id="close-profile" type="button" aria-label="Close dialog">×</button>
+      </div>
+      <form class="profile-form" id="profile-form">
+        <div class="profile-field">
+          <label for="profile-username">Username</label>
+          <input id="profile-username" name="username" type="text" autocomplete="username" maxlength="24">
+        </div>
+        <div class="profile-field">
+          <label for="profile-email">Email</label>
+          <input id="profile-email" name="email" type="email" autocomplete="email" maxlength="254">
+        </div>
+        <div class="profile-field">
+          <label for="profile-password">Password</label>
+          <input id="profile-password" name="password" type="password" autocomplete="new-password" maxlength="128">
+        </div>
+        <div class="profile-actions">
+          <button class="delete-button" id="delete-account" type="button">Delete demo account</button>
+          <button class="primary-button" type="submit">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
