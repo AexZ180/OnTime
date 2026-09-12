@@ -11,8 +11,8 @@ export async function GET(){
     const id='personal-'+user.userId;
     await db.insert(calendars).values({id,owner:user.userId,name:'My calendar',color:'0'}).onConflictDoNothing({target:calendars.id});
     const [c,e,p]=await Promise.all([
-      db.select({id:calendars.id,name:calendars.name,color:calendars.color}).from(calendars).where(eq(calendars.owner,user.userId)).orderBy(asc(calendars.createdAt)),
-      db.select({data:events.data,token:events.token}).from(events).where(eq(events.owner,user.userId)).orderBy(asc(events.createdAt)),
+      db.select({id:calendars.id,name:calendars.name,color:calendars.color}).from(calendars).where(eq(calendars.owner,user.userId)).orderBy(asc(calendars.seq)),
+      db.select({data:events.data,token:events.token}).from(events).where(eq(events.owner,user.userId)).orderBy(asc(events.seq)),
       db.select({name:profiles.name,birthday:profiles.birthday,homeCity:profiles.homeCity,timeZone:profiles.timeZone,locationSharing:profiles.locationSharing}).from(profiles).where(eq(profiles.owner,user.userId)).limit(1),
     ]);
     return Response.json({
