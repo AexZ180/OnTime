@@ -48,3 +48,7 @@ next-env.d.ts
 /outputs/
 /work/
 *.tsbuildinfo
+
+# Shared team config: the localhost-only Google OAuth client is committed so every
+# teammate gets it on pull. Keep this repository private.
+!.env
