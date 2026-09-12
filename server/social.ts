@@ -1,13 +1,14 @@
 import {randomUUID} from 'node:crypto';
 import {and,eq,or,ne,ilike} from 'drizzle-orm';
 import {z} from 'zod';
-import {accounts,profiles,friendships} from '../db/schema';
+import {accounts,profiles,friendships,friendGroups,friendGroupMembers,calendarShares,SHARING} from '../db/schema';
 import type {Database} from './database';
 import type {User} from './auth';
 import {body,ensure,json,id,username,timeZone,birthday} from './http';
+import {resolveSharing,sharingWithViewers} from './friends';
 
 export const gender=z.enum(['Woman','Man','Non-binary','Prefer not to say','']);
-export const profilePatch=z.object({name:z.string().trim().min(1).max(100).optional(),username:username.optional(),birthday:birthday.optional(),homeCity:z.string().trim().max(100).optional(),timeZone:timeZone.optional(),locationSharing:z.enum(['never','while_using','always']).optional(),bio:z.string().trim().max(500).optional(),visibility:z.enum(['public','friends','private']).optional(),phone:z.string().trim().max(20).optional(),gender:gender.optional(),eventRecommendations:z.boolean().optional()}).strict();
+export const profilePatch=z.object({name:z.string().trim().min(1).max(100).optional(),username:username.optional(),birthday:birthday.optional(),homeCity:z.string().trim().max(100).optional(),timeZone:timeZone.optional(),locationSharing:z.enum(['never','while_using','always']).optional(),bio:z.string().trim().max(500).optional(),visibility:z.enum(['public','friends','private']).optional(),phone:z.string().trim().max(20).optional(),gender:gender.optional(),eventRecommendations:z.boolean().optional(),defaultSharing:z.enum(SHARING).optional()}).strict();
 export const publicFields={id:accounts.id,username:accounts.username,name:profiles.name,bio:profiles.bio};
 export async function relationship(db:Database,a:string,b:string){
   const [low,high]=[a,b].sort();
@@ -46,12 +47,24 @@ export async function socialRoute(req:Request,db:Database,user:User,path:string)
   }
   if(path==='/api/friends'&&method==='GET'){
     const rows=await db.select().from(friendships).where(or(eq(friendships.userLow,user.id),eq(friendships.userHigh,user.id)));
+    const visible=rows.filter(row=>row.status!=='blocked'||row.blockedBy===user.id);
+    const targets=visible.map(row=>row.userLow===user.id?row.userHigh:row.userLow);
+    // Two directions, and they are independent: what they let me see, and what I let
+    // them see. The UI needs both so neither is mistaken for the other.
+    const theirs=await resolveSharing(db,user.id,targets);
+    const mine=await sharingWithViewers(db,user.id,targets);
+    const overrides=new Map((await db.select().from(calendarShares).where(eq(calendarShares.ownerId,user.id))).map(row=>[row.viewerId,row.sharing]));
+    const memberships=await db.select({groupId:friendGroupMembers.groupId,memberId:friendGroupMembers.memberId}).from(friendGroupMembers)
+      .innerJoin(friendGroups,eq(friendGroups.id,friendGroupMembers.groupId)).where(eq(friendGroups.owner,user.id));
     const friends=[];
-    for(const row of rows){
-      if(row.status==='blocked'&&row.blockedBy!==user.id)continue;
+    for(const row of visible){
       const target=row.userLow===user.id?row.userHigh:row.userLow;
       const [person]=await db.select(publicFields).from(accounts).innerJoin(profiles,eq(profiles.owner,accounts.id)).where(eq(accounts.id,target));
-      friends.push({id:row.id,status:row.status,direction:row.requesterId===user.id?'outgoing':'incoming',user:person});
+      friends.push({id:row.id,status:row.status,direction:row.requesterId===user.id?'outgoing':'incoming',user:person,
+        sharing:row.status==='accepted'?mine.get(target)??'none':'none',
+        sharingOverride:overrides.get(target)??null,
+        theirSharing:row.status==='accepted'?theirs.get(target)??'none':'none',
+        groups:memberships.filter(m=>m.memberId===target).map(m=>m.groupId)});
     }
     return json({friends});
   }

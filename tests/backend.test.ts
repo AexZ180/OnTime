@@ -11,7 +11,9 @@ import {migrateDatabase,type DatabaseConnection} from '../server/database';
 import {handleRequest,type Context} from '../server/api';
 import {rankSlots,availabilityAt} from '../server/scheduling';
 import {digest,rateLimit} from '../server/auth';
+import {nodeHeaders} from '../server/http';
 import {geohash,normalizeTicketmasterEvent} from '../server/discovery';
+import {buildGrid,toBlocks,fromBlocks,dailyWindows} from '../lib/polls';
 
 const password='A long demo password 2026!';
 const start='2030-10-01T15:00:00Z',end='2030-10-01T17:00:00Z';
@@ -186,6 +188,19 @@ test('Google sign-in creates, reuses, and refuses to capture accounts',async()=>
     assert.equal(blocked.headers.get('location'),'http://localhost:5173/login.html?error=google_exists');
     assert.equal(session(blocked),'');
 
+    // The response object is not what the browser sees. server/main.ts hands these
+    // headers to Node, and collapsing the pair there dropped the session cookie and
+    // left the handshake cleanup, so a finished Google sign-in arrived signed out.
+    claims={sub:'google-wire',email:'wire@example.com',email_verified:true,name:'Wire'};
+    const wire=await finish();
+    const served=nodeHeaders(wire)['set-cookie'];
+    assert.ok(Array.isArray(served)&&served.length===2,'both cookies must reach the browser');
+    const servedSession=served.find(c=>c.startsWith('ontime_session='))!;
+    assert.ok(servedSession,'the session cookie must survive serialization');
+    assert.ok(served.some(c=>c.startsWith('ontime_oauth=')),'the handshake cookie is still cleared');
+    const signedIn=await (await get('/api/auth/me',servedSession.split(';')[0])).json() as {user:{email:string}|null};
+    assert.equal(signedIn.user?.email,'wire@example.com');
+
     // The handshake is single use and requires the browser's binding cookie.
     const {state,binding}=await handshake();
     assert.equal((await get(`/api/auth/google/callback?code=demo&state=${state}`)).headers.get('location'),'http://localhost:5173/login.html?error=google_expired');
@@ -195,4 +210,160 @@ test('Google sign-in creates, reuses, and refuses to capture accounts',async()=>
     const attempt=await handleRequest(new Request('http://localhost:5173/api/auth/login',{method:'POST',headers:{'content-type':'application/json',origin:'http://localhost:5173'},body:JSON.stringify({identifier:'ollie',password:'anything at all!!'})}),context());
     assert.equal(attempt.status,401);
   }finally{globalThis.fetch=realFetch;await client.close();await rm(directory,{recursive:true,force:true})}
+});
+
+test('friend groups, per-friend sharing, and what a busy viewer never receives',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'ontime-friends-'));
+  const client=new PGlite(directory);await client.waitReady;
+  const db=drizzle(client,{schema});
+  await migrateDatabase({db,client,mode:'local',close:()=>client.close()} as DatabaseConnection);
+  const context=():Context=>({db,mode:'local',origins:['http://localhost:5173'],appOrigin:'http://localhost:5173',google:null,secureCookies:false,clientAddress:'test'});
+  async function call(path:string,method='GET',data?:unknown,cookie='',expected=200){
+    const response=await handleRequest(new Request('http://localhost:5173/api'+path,{method,headers:{'content-type':'application/json',origin:'http://localhost:5173',cookie},...(data===undefined?{}:{body:JSON.stringify(data)})}),context());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const value:any=await response.json();assert.equal(response.status,expected,JSON.stringify(value));
+    return {value,cookie:response.headers.get('set-cookie')?.split(';')[0]??cookie};
+  }
+  async function register(username:string){
+    const {value,cookie}=await call('/auth/register','POST',{email:`${username}@example.com`,username,password,name:username},'',201);
+    return {id:value.user.id as string,cookie};
+  }
+  const window=`?start=${encodeURIComponent('2030-09-30T00:00:00Z')}&end=${encodeURIComponent('2030-10-03T00:00:00Z')}`;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const feed=async(cookie:string)=>(await call('/friends/calendar'+window,'GET',undefined,cookie)).value.friends as any[];
+  try{
+    const alice=await register('alice'),bob=await register('bob'),carol=await register('carol');
+    // Two touching events, so a busy viewer also cannot read the seam between them.
+    await call('/action','POST',{action:'save',event:{calendar:'personal-'+alice.id,title:'Dentist',start,end,location:'Fern Street Dental',invitees:'',notes:'Bring the referral',allDay:false}},alice.cookie);
+    await call('/action','POST',{action:'save',event:{calendar:'personal-'+alice.id,title:'Gym',start:end,end:'2030-10-01T18:00:00Z',location:'',invitees:'',notes:'',allDay:false}},alice.cookie);
+
+    // A pending request shares nothing yet.
+    const request=await call('/friends/requests','POST',{userId:bob.id},alice.cookie,201);
+    assert.deepEqual(await feed(bob.cookie),[]);
+    await call(`/friends/${request.value.id}`,'PATCH',{action:'accept'},bob.cookie);
+
+    // The account default is 'busy': one merged block, and not a single detail.
+    const [busy]=await feed(bob.cookie);
+    assert.equal(busy.sharing,'busy');
+    assert.equal(busy.events.length,1,'touching events merge into one block');
+    assert.deepEqual(Object.keys(busy.events[0]).sort(),['end','start']);
+    assert.equal(busy.events[0].start,start);
+    assert.equal(busy.events[0].end,'2030-10-01T18:00:00Z');
+    assert.doesNotMatch(JSON.stringify(busy),/Dentist|Gym|Fern Street|referral/,'a busy viewer receives no titles, places, or notes');
+
+    // A per-friend override opens the details up.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'details'},alice.cookie);
+    const [detailed]=await feed(bob.cookie);
+    assert.equal(detailed.sharing,'details');
+    assert.equal(detailed.events.length,2);
+    assert.deepEqual(detailed.events.map((e:{title:string})=>e.title).sort(),['Dentist','Gym']);
+    assert.equal(detailed.events.find((e:{title:string})=>e.title==='Dentist').location,'Fern Street Dental');
+    // Details still stop short of the private fields the owner never offered.
+    assert.doesNotMatch(JSON.stringify(detailed),/referral/,'notes stay with the owner');
+
+    // A group carries the level, so filing a friend into it is enough.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'default'},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'busy');
+    const close=await call('/friends/groups','POST',{name:'Close friends',color:0,sharing:'details'},alice.cookie,201);
+    const work=await call('/friends/groups','POST',{name:'Work',color:2,sharing:'busy'},alice.cookie,201);
+    await call(`/friends/groups/${close.value.id}/members`,'PUT',{userIds:[bob.id]},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'details');
+
+    // In two groups, the most permissive one decides.
+    await call(`/friends/groups/${work.value.id}/members`,'PUT',{userIds:[bob.id]},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'details');
+
+    // A per-person 'none' overrides even a group that grants details.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'none'},alice.cookie);
+    assert.deepEqual(await feed(bob.cookie),[],'an override of none hides the calendar outright');
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'default'},alice.cookie);
+
+    // Changing the account default moves everyone who has no group and no override.
+    await call('/action','POST',{action:'profile',profile:{defaultSharing:'none'}},alice.cookie);
+    assert.equal((await feed(bob.cookie))[0].sharing,'details','a group still outranks the default');
+    await call(`/friends/groups/${close.value.id}`,'DELETE',undefined,alice.cookie);
+    await call(`/friends/groups/${work.value.id}`,'DELETE',undefined,alice.cookie);
+    assert.deepEqual(await feed(bob.cookie),[],'with no group left the default hides it');
+    await call('/action','POST',{action:'profile',profile:{defaultSharing:'busy'}},alice.cookie);
+
+    // Carol is nobody's friend and sees nothing, whatever she asks for.
+    assert.deepEqual(await feed(carol.cookie),[]);
+    // Groups are for accepted friends only, so one cannot be used to reach a stranger.
+    const strangers=await call('/friends/groups','POST',{name:'Strangers',sharing:'details'},alice.cookie,201);
+    await call(`/friends/groups/${strangers.value.id}/members`,'PUT',{userIds:[carol.id]},alice.cookie,400);
+    // Nor can a group be edited by someone who does not own it.
+    await call(`/friends/groups/${strangers.value.id}`,'PATCH',{sharing:'details'},bob.cookie,404);
+    await call(`/friends/groups/${strangers.value.id}/members`,'PUT',{userIds:[]},bob.cookie,404);
+    await call(`/friends/sharing/${alice.id}`,'PUT',{sharing:'details'},carol.cookie,404);
+
+    // Both directions are reported independently to the owner of the list.
+    await call(`/friends/sharing/${bob.id}`,'PUT',{sharing:'details'},alice.cookie);
+    const [listed]=(await call('/friends','GET',undefined,alice.cookie)).value.friends;
+    assert.equal(listed.sharing,'details','what Alice shares with Bob');
+    assert.equal(listed.theirSharing,'busy','what Bob shares with Alice');
+
+    // Blocking cuts the calendar off in both directions at once.
+    await call(`/friends/${request.value.id}`,'PATCH',{action:'block'},bob.cookie);
+    assert.deepEqual(await feed(bob.cookie),[]);
+    assert.deepEqual(await feed(alice.cookie),[]);
+  }finally{await client.close();await rm(directory,{recursive:true,force:true})}
+});
+
+test('poll grid maths produce availability the server will accept',async()=>{
+  // Local times, because the poll screen paints in the viewer's own day.
+  const day=(date:string,h:number,m=0)=>new Date(new Date(date+'T00:00:00').setHours(h,m,0,0)).toISOString();
+  const windows=dailyWindows('2030-10-01','2030-10-03',9*60,17*60);
+  assert.equal(windows.length,3);
+  assert.equal(windows[0].start,day('2030-10-01',9));
+  assert.equal(windows[0].end,day('2030-10-01',17));
+  // One window per day never overlaps the next, which is what the server checks.
+  assert.ok(windows.every((w,i)=>i===0||Date.parse(w.start)>=Date.parse(windows[i-1].end)));
+  assert.deepEqual(dailyWindows('2030-10-03','2030-10-01',9*60,17*60),[],'a backwards range yields nothing');
+  assert.deepEqual(dailyWindows('2030-10-01','2030-10-02',17*60,9*60),[],'an end before the start yields nothing');
+  assert.equal(dailyWindows('2030-10-01','2030-12-31',9*60,17*60).length,31,'capped at the server maximum');
+
+  const grid=buildGrid(windows);
+  assert.deepEqual(grid.days,['2030-10-01','2030-10-02','2030-10-03']);
+  assert.equal(grid.times.length,16,'eight hours of half-hour cells');
+  assert.equal(grid.times[0],9*60);
+  assert.equal(grid.index.get('2030-10-01#'+9*60),Date.parse(day('2030-10-01',9)),'the grid indexes cells by timestamp');
+
+  // An irregular poll leaves a real gap rather than inventing a cell.
+  const ragged=buildGrid([{start:day('2030-10-01',9),end:day('2030-10-01',17)},{start:day('2030-10-02',9),end:day('2030-10-02',11)}]);
+  assert.equal(ragged.index.get('2030-10-02#'+10*60),Date.parse(day('2030-10-02',10)));
+  assert.equal(ragged.index.get('2030-10-02#'+15*60),undefined,'the short day has no afternoon cell');
+
+  // Painting four touching cells must come back as one block, not four.
+  const paint=new Map<number,string>();
+  for(const h of [10,10.5,11,11.5])paint.set(Date.parse(day('2030-10-01',Math.floor(h),h%1?30:0)),'available');
+  paint.set(Date.parse(day('2030-10-01',14)),'preferred');
+  paint.set(Date.parse(day('2030-10-02',10)),'available');
+  const blocks=toBlocks(paint,windows);
+  assert.equal(blocks.length,3);
+  assert.deepEqual(blocks[0],{start:day('2030-10-01',10),end:day('2030-10-01',12),status:'available'});
+  assert.deepEqual(blocks[1],{start:day('2030-10-01',14),end:day('2030-10-01',14,30),status:'preferred'},'a lone cell is half an hour');
+  // Every rule PUT /polls/:id/availability enforces, checked before it is ever sent.
+  assert.ok(blocks.every((b,i)=>Date.parse(b.end)>Date.parse(b.start)&&(i===0||Date.parse(b.start)>=Date.parse(blocks[i-1].end))),'sorted and non-overlapping');
+  assert.ok(blocks.every(b=>windows.some(w=>Date.parse(b.start)>=Date.parse(w.start)&&Date.parse(b.end)<=Date.parse(w.end))),'every block sits inside a window');
+  assert.ok(blocks.length<=500);
+  // A neighbour of a different status stays its own block rather than merging.
+  assert.equal(toBlocks(new Map([[Date.parse(day('2030-10-01',10)),'available'],[Date.parse(day('2030-10-01',10,30)),'maybe']]),windows).length,2);
+  // A cell outside every window is dropped rather than sent for the server to refuse.
+  assert.deepEqual(toBlocks(new Map([[Date.parse(day('2030-10-01',3)),'available']]),windows),[]);
+
+  // Reloading a saved poll repaints exactly the cells that were painted.
+  const round=fromBlocks(blocks);
+  assert.equal(round.size,paint.size);
+  for(const [stamp,status] of paint)assert.equal(round.get(stamp),status);
+  assert.deepEqual(toBlocks(round,windows),blocks,'and survives another trip');
+
+  // A full week painted end to end still fits well inside the 500-block ceiling.
+  // These windows abut exactly at midnight, so this is the case where a naive merge would
+  // span two days and produce a block the server refuses as belonging to no single window.
+  const week=dailyWindows('2030-10-07','2030-10-13',0,24*60);
+  const full=new Map<number,string>();
+  for(const w of week)for(let t=Date.parse(w.start);t<Date.parse(w.end);t+=30*60000)full.set(t,'available');
+  const packed=toBlocks(full,week);
+  assert.equal(packed.length,7,'one block per day, never merged across a window edge');
+  assert.ok(packed.every(b=>week.some(w=>Date.parse(b.start)>=Date.parse(w.start)&&Date.parse(b.end)<=Date.parse(w.end))),'each still inside one window');
 });

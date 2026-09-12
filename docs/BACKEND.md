@@ -1,8 +1,8 @@
 # OnTime backend handoff
 
-The Node backend implements independent accounts, profiles, friend requests, member-only scheduling polls, ranked overlap, confirmation into a shared calendar event, and RSVP. The existing calendar CRUD/import endpoints now use these accounts.
+The Node backend implements independent accounts, profiles, friend requests, friend groups with per-friend calendar sharing, member-only scheduling polls, ranked overlap, confirmation into a shared calendar event, and RSVP. The existing calendar CRUD/import endpoints now use these accounts.
 
-The sign-in screen is connected. `public/login.html`, `public/login.css`, `public/login.js`, and `public/ollie.webp` are served as static assets at `/login` (also `/login.html`) and call the endpoints below on the same origin. The calendar app links to `/login` instead of the old ChatGPT sign-in link, and its sidebar has a sign-out control. The friend and poll screens are still unconnected.
+The sign-in screen is connected. `public/login.html`, `public/login.css`, `public/login.js`, and `public/ollie.webp` are served as static assets at `/login` (also `/login.html`) and call the endpoints below on the same origin. The calendar app links to `/login` instead of the old ChatGPT sign-in link, and its sidebar has a sign-out control. The Friends view in the app is connected: it manages requests, groups, and sharing levels, and friends' calendars appear in the sidebar and the week grid alongside your own. The Polls view is connected too: it creates polls, paints availability on a drag grid, shows the group overlap, and confirms a time into everyone's calendar.
 
 ## Start on your machine
 
@@ -15,7 +15,7 @@ npm run dev
 
 This starts the API on `http://127.0.0.1:3001` and the existing frontend on `http://localhost:5173`. The frontend forwards `/api/*` to Node, so browser cookies work on the frontend origin. `npm run dev:api` and `npm run dev:frontend` start them separately. `npm run start:api` runs the API without the frontend. The existing `npm start` still starts the built frontend and needs the API running separately.
 
-No database URL is currently configured in this checkout. With no URL, development uses PGlite (embedded PostgreSQL) persisted under `.ontime/data`, ignored by Git. Accounts, sessions, profiles, friendships, calendars, and polls survive an API restart. Keep that directory to retain local data; do not run multiple API processes against it. It is a development database, not a hosted Tiger Data service or a backup.
+No database URL is currently configured in this checkout. With no URL, development uses PGlite (embedded PostgreSQL) persisted under `.ontime/data`, ignored by Git. Accounts, sessions, profiles, friendships, friend groups, sharing settings, calendars, and polls survive an API restart. Keep that directory to retain local data; do not run multiple API processes against it. It is a development database, not a hosted Tiger Data service or a backup.
 
 `GET /api/health` reports `storage: "local"` or `"tiger"`. There are no seeded accounts: register through the API or your teammate's form. The old UI's demo data remains separate from saved account data.
 
@@ -83,7 +83,7 @@ async function api(path: string, method = 'GET', data?: unknown) {
 | GET `/auth/google/start` | Redirects the browser to Google. Optional `?next=` is a same-site path to return to |
 | GET `/auth/google/callback` | Google's redirect target. Always answers with a redirect, never JSON |
 | GET `/profile` | `{profile}` with own settings and username |
-| PATCH `/profile` | Any of `{name,username,birthday,homeCity,timeZone,locationSharing,bio,visibility,phone,gender,eventRecommendations}` → `{profile}` |
+| PATCH `/profile` | Any of `{name,username,birthday,homeCity,timeZone,locationSharing,bio,visibility,phone,gender,eventRecommendations,defaultSharing}` → `{profile}` |
 
 Usernames normalize to lowercase and contain 3–30 letters, digits, or underscores; the sign-up form asks for a stricter 3–24 starting with a letter. Passwords are 15–128 characters, stored as Argon2id hashes, never plaintext — the form's minimum matches `MIN_PASSWORD` in `server/api.ts`, so change both together. `gender` is one of `Woman`, `Man`, `Non-binary`, `Prefer not to say`, or blank; `phone` and `eventRecommendations` are stored on the profile only. Sign-in accepts an email address or a username, not a phone number. Session tokens are random, stored hashed in SQL, sent only through HttpOnly/SameSite=Lax cookies. Email and username uniqueness are enforced by SQL. Birthday is blank or a real `YYYY-MM-DD` date; timezone must be IANA, e.g. `America/Chicago`. `locationSharing` accepts `never`, `while_using`, `always` as a stored preference; no live geolocation is implemented.
 
@@ -95,13 +95,33 @@ Usernames normalize to lowercase and contain 3–30 letters, digits, or undersco
 | --- | --- |
 | GET `/users?q=al` | Username prefix, 2–30 characters → `{users:[{id,username,name,bio}]}` |
 | GET `/users/:userId` | Visible `{profile}`; inaccessible profiles return 404 |
-| GET `/friends` | `{friends:[{id,status,direction,user}]}`; direction incoming/outgoing |
+| GET `/friends` | `{friends:[{id,status,direction,user,sharing,sharingOverride,theirSharing,groups}]}`; direction incoming/outgoing |
 | POST `/friends/requests` | `{userId}` → `{id,status:"pending"}`, 201 |
 | PATCH `/friends/:requestId` | `{action:"accept"\|"decline"\|"cancel"\|"remove"\|"block"\|"unblock"}` |
 
 Only the recipient accepts/declines; only the sender cancels. Blocking an existing request/connection hides discovery and prevents new invitations. Only the blocker can unblock. Removing/unblocking deletes the relationship. Existing shared polls/events remain visible to their members after a friendship changes; blocking does not retroactively cancel plans.
 
-### 3. Availability polls
+On `/friends`, `sharing` is what you show that friend, `theirSharing` is what they show you, and `sharingOverride` is your per-person setting or `null` when a group or your default decides it.
+
+### 3. Calendar sharing
+
+| Method / path | Body / result |
+| --- | --- |
+| GET `/friends/groups` | `{groups:[{id,name,color,sharing,members:[userId]}]}` |
+| POST `/friends/groups` | `{name,color?,sharing?}` → the created group, 201 |
+| PATCH `/friends/groups/:groupId` | Any of `{name,color,sharing}` |
+| DELETE `/friends/groups/:groupId` | Deletes the group; the friendships are untouched |
+| PUT `/friends/groups/:groupId/members` | `{userIds}` replaces the whole membership |
+| PUT `/friends/sharing/:userId` | `{sharing:"none"\|"busy"\|"details"\|"default"}`; `default` clears the override |
+| GET `/friends/calendar?start=&end=` | `{friends:[{userId,username,name,sharing,events}]}` over at most 62 days |
+
+Three levels, from the calendar owner's side: `details` shows what the events are, `busy` shows only that the time is taken, `none` hides the calendar. They resolve in a fixed order — a per-person setting from `PUT /friends/sharing/:userId` wins outright, so one member of an otherwise trusted group can still be shut out; otherwise the most permissive group the viewer belongs to applies; otherwise the owner's `defaultSharing`, which is `busy` for a new account.
+
+Nothing is shared outside an accepted friendship. A pending request, a declined one, and a block all resolve to `none` in both directions whatever the groups say, and only accepted friends can be put in a group.
+
+`GET /friends/calendar` projects each friend's events **on the server**, so a viewer limited to `busy` never receives the titles at all: their blocks carry `{start,end}` and nothing else, and overlapping or touching ones are merged so the number of events and the seams between them stay private too. A `details` viewer receives `{id,title,start,end,location,allDay}` — notes and invitee lists are never shared at any level. Either way the feed covers what a friend owns plus what they have been invited to and not declined, the same set the scheduling polls treat as busy.
+
+### 4. Availability polls
 
 ```ts
 const {id} = await api('/polls', 'POST', {
@@ -134,7 +154,7 @@ Availability statuses: `preferred`, `available`, `maybe`, `unavailable`. Uncover
 
 Ranking prioritizes qualified slots, attendee count, preferred count, maybe count, then earliest time. Required attendees must be available/preferred; maybe does not qualify them. The minimum counts available/preferred attendees. Confirmation locks the poll and participant accounts and rechecks conflicts before writing. Repeating the same confirmation returns the same event; choosing another time returns 409. Closed polls reject edits. Confirmed plan time changes require a new poll; organizer may still edit its title/details or delete the shared event.
 
-### 4. Calendar and RSVP compatibility
+### 5. Calendar and RSVP compatibility
 
 `GET /state` returns `{user,profile,calendars,events}`. Own events include `canEdit:true` and an invitation token. Shared events appear under a virtual `Shared plans` calendar with the same event ID, `canEdit:false`, and `attendance`. The frontend should disable event editing when `canEdit === false`, and show RSVP instead. Do not insert copies of shared events.
 
@@ -142,7 +162,7 @@ Ranking prioritizes qualified slots, attendee count, preferred count, maybe coun
 
 `GET /events/:eventId/rsvp` returns `{event,responses,mine}` for organizer/members. `POST /events/:eventId/rsvp` with `{status:"Going"|"Maybe"|"Not going"}` changes only the caller's RSVP. Only the organizer sees all response names. Legacy `GET /rsvp?token=...` and `POST /rsvp` with `{token,status}` still work: possession of this unguessable invitation token grants event access and allows a signed-in user to join. Treat tokens as shareable invitation links, not public event IDs.
 
-### 5. Nearby event discovery
+### 6. Nearby event discovery
 
 Set the Ticketmaster Discovery API Consumer Key in ignored `.env.local` as `TICKETMASTER_API_KEY`. The key stays in the Node process and is never returned to the browser. Restart the API after adding or rotating it.
 

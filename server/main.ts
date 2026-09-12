@@ -2,6 +2,7 @@ import {createServer} from 'node:http';
 import {config} from './config';
 import {connectDatabase,migrateDatabase} from './database';
 import {handleRequest} from './api';
+import {nodeHeaders} from './http';
 
 const settings=config(),connection=await connectDatabase();
 await migrateDatabase(connection);
@@ -12,7 +13,7 @@ const server=createServer(async(req,res)=>{
     const headers=new Headers();for(const [name,value] of Object.entries(req.headers))if(value)headers.set(name,Array.isArray(value)?value.join(','):value);
     const request=new Request(`http://127.0.0.1:${settings.port}${req.url}`,{method:req.method,headers,...(!['GET','HEAD'].includes(req.method??'GET')?{body:Buffer.concat(chunks)}:{})});
     const response=await handleRequest(request,{db:connection.db,mode:connection.mode,origins:settings.origins,appOrigin:settings.appOrigin,google:settings.google,ticketmasterKey:settings.ticketmasterKey,secureCookies:settings.secureCookies,clientAddress:req.socket.remoteAddress??'unknown'});
-    res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
+    res.writeHead(response.status,nodeHeaders(response));res.end(Buffer.from(await response.arrayBuffer()));
   }catch{res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":"Request failed."}')}
 });
 server.requestTimeout=15000;server.headersTimeout=10000;
