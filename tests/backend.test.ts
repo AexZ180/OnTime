@@ -12,7 +12,7 @@ import {handleRequest,type Context} from '../server/api';
 import {rankSlots,availabilityAt} from '../server/scheduling';
 import {digest,rateLimit} from '../server/auth';
 import {nodeHeaders} from '../server/http';
-import {geohash,normalizeTicketmasterEvent} from '../server/discovery';
+  import {geohash,normalizeTicketmasterEvent,cityFilter,ticketmasterDate} from '../server/discovery';
 import {buildGrid,toBlocks,fromBlocks,dailyWindows} from '../lib/polls';
 
 const password='A long demo password 2026!';
@@ -44,7 +44,9 @@ test('full SQL account, profile, friendship, planning, RSVP and restart lifecycl
     await call('/auth/login','POST',{identifier:'alice',password:'wrong'},'',401);
     await call('/profile','PATCH',{timeZone:'Not/AZone'},a.cookie,400);
     await call('/profile','PATCH',{birthday:'2000-02-30'},a.cookie,400);
-    await call('/profile','PATCH',{name:'Alice Example',bio:'Coffee and calendars',birthday:'2000-02-29'},a.cookie);
+    await call('/profile','PATCH',{name:'Alice Example',bio:'Coffee and calendars',birthday:'2000-02-29',homeCity:'Chicago, IL',locationSharing:'while_using'},a.cookie);
+    const savedProfile=(await call('/profile','GET',undefined,a.cookie)).value.profile;
+    assert.equal(savedProfile.homeCity,'Chicago, IL');assert.equal(savedProfile.locationSharing,'while_using');
     await call('/users/'+a.value.user.id,'GET',undefined,b.cookie,404);
     assert.equal((await call('/users?q=al','GET',undefined,b.cookie)).value.users[0].email,undefined);
     await call('/friends/requests','POST',{userId:a.value.user.id},a.cookie,400);
@@ -96,6 +98,7 @@ test('full SQL account, profile, friendship, planning, RSVP and restart lifecycl
     await rateLimit(db,'isolated-limit',1);await assert.rejects(()=>rateLimit(db,'isolated-limit',1),/Too many/);
     await client.close();client=new PGlite(directory);await client.waitReady;db=drizzle(client,{schema});await migrateDatabase(connection());
     assert.equal((await call('/auth/me','GET',undefined,a.cookie)).value.user.id,a.value.user.id);
+    assert.equal((await call('/profile','GET',undefined,a.cookie)).value.profile.homeCity,'Chicago, IL');
     assert.equal((await call('/state','GET',undefined,b.cookie)).value.events[0].id,confirmed.value.eventId);
     await call('/auth/logout','POST',{},a.cookie);
     assert.equal((await call('/auth/me','GET',undefined,a.cookie)).value.user,null);
@@ -114,6 +117,9 @@ test('full duration, adjacent blocks, gaps, endpoint boundaries, preferences and
 
 test('Ticketmaster locations are encoded and provider events are reduced to safe UI fields',()=>{
   assert.equal(geohash(41.8781,-87.6298),'dp3wjzt');
+  assert.deepEqual(cityFilter('Chicago, IL'),{city:'Chicago',stateCode:'IL'});
+  assert.deepEqual(cityFilter('London'),{city:'London',stateCode:undefined});
+  assert.equal(ticketmasterDate('2030-10-01T15:30:12.427Z'),'2030-10-01T15:30:12Z');
   const event=normalizeTicketmasterEvent({id:'abc',name:'Live show',url:'https://tickets.example/show',distance:4.2,units:'MILES',images:[{url:'http://unsafe.example/image',width:2000},{url:'https://images.example/wide',ratio:'16_9',width:1024}],dates:{timezone:'America/Chicago',status:{code:'onsale'},start:{dateTime:'2030-10-01T23:00:00Z',localDate:'2030-10-01',localTime:'18:00:00'}},classifications:[{primary:true,segment:{name:'Music'},genre:{name:'Rock'}}],priceRanges:[{currency:'USD',min:20,max:80}],_embedded:{venues:[{name:'The Venue',city:{name:'Chicago'},state:{stateCode:'IL'},country:{countryCode:'US'},address:{line1:'1 Main St'},location:{latitude:'41.88',longitude:'-87.63'}}]}});
   assert.deepEqual(event,{id:'abc',name:'Live show',url:'https://tickets.example/show',imageUrl:'https://images.example/wide',start:{dateTime:'2030-10-01T23:00:00Z',localDate:'2030-10-01',localTime:'18:00:00',dateTBD:false,dateTBA:false,timeTBA:false,timeZone:'America/Chicago'},status:'onsale',distance:4.2,distanceUnit:'MILES',category:'Music',genre:'Rock',subGenre:null,venue:{name:'The Venue',address:'1 Main St',city:'Chicago',state:'IL',country:'US',latitude:41.88,longitude:-87.63},price:{currency:'USD',min:20,max:80}});
 });

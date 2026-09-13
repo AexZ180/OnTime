@@ -37,6 +37,17 @@ export function geohash(latitude:number,longitude:number,precision=7){
   return result;
 }
 
+// The UI accepts the familiar "City, ST" form, while Ticketmaster expects the
+// city and two-letter state code as separate parameters.
+export function cityFilter(value:string){
+  const parts=value.split(',').map(part=>part.trim()).filter(Boolean),last=parts.at(-1)??'';
+  const hasState=parts.length>1&&/^[a-z]{2}$/i.test(last);
+  return {city:(hasState?parts.slice(0,-1):parts).join(', '),stateCode:hasState?last.toUpperCase():undefined};
+}
+export function ticketmasterDate(value:string|number|Date){
+  return new Date(value).toISOString().replace(/\.\d{3}Z$/,'Z');
+}
+
 function bestImage(images:TicketmasterImage[]=[]){
   return [...images].filter(image=>image.url?.startsWith('https://')).sort((a,b)=>Number(b.ratio==='16_9')-Number(a.ratio==='16_9')||(b.width??0)-(a.width??0))[0]?.url??null;
 }
@@ -61,10 +72,10 @@ export async function discoveryRoute(request:Request,db:Database,user:User,path:
   }
   const params=new URLSearchParams({apikey:ticketmasterKey,size:String(input.size),page:String(input.page),radius:String(input.radius),unit:input.unit,sort:input.latitude===undefined?'date,asc':'distance,date,asc',includeTBA:'no',includeTBD:'no'});
   if(input.latitude!==undefined)params.set('geoPoint',geohash(input.latitude,input.longitude!));
-  if(input.city)params.set('city',input.city);if(input.postalCode)params.set('postalCode',input.postalCode);
+  if(input.city){const location=cityFilter(input.city);params.set('city',location.city);if(location.stateCode)params.set('stateCode',location.stateCode)}if(input.postalCode)params.set('postalCode',input.postalCode);
   if(input.keyword)params.set('keyword',input.keyword);if(input.category)params.set('classificationName',input.category);
   const start=input.start??new Date().toISOString();const end=input.end??new Date(Date.now()+90*86400000).toISOString();
-  params.set('startDateTime',new Date(start).toISOString().replace('.000Z','Z'));params.set('endDateTime',new Date(end).toISOString().replace('.000Z','Z'));
+  params.set('startDateTime',ticketmasterDate(start));params.set('endDateTime',ticketmasterDate(end));
   const cacheKey=params.toString().replace(/(?:^|&)apikey=[^&]*/,'');const cached=cache.get(cacheKey);
   if(cached&&cached.expires>Date.now())return json(cached.value,200,{'Cache-Control':'private, max-age=300'});
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
@@ -74,6 +85,7 @@ export async function discoveryRoute(request:Request,db:Database,user:User,path:
   finally{clearTimeout(timeout)}
   if(upstream.status===401||upstream.status===403)throw new ApiError(503,'Nearby event discovery is not configured correctly.');
   if(upstream.status===429)throw new ApiError(503,'Nearby event search is temporarily at capacity.');
+  if(upstream.status===400)throw new ApiError(400,'Ticketmaster could not recognize that location. Try a city and two-letter state, such as Chicago, IL.');
   if(!upstream.ok)throw new ApiError(502,'Nearby events are temporarily unavailable.');
   const data=await upstream.json() as TicketmasterResponse;
   const value={events:(data._embedded?.events??[]).filter(event=>event.id).map(normalizeTicketmasterEvent),page:{number:data.page?.number??input.page,size:data.page?.size??input.size,totalElements:data.page?.totalElements??0,totalPages:data.page?.totalPages??0},source:'Ticketmaster'};
