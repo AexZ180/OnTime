@@ -1,9 +1,17 @@
-FROM node:22-bookworm-slim
+
+FROM node:20-alpine
+
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --include=dev
+
+COPY package*.json ./
+RUN npm install
+
 COPY . .
-ENV ONTIME_TARGET=railway
-RUN node node_modules/vinext/dist/cli.js build
-ENV NODE_ENV=production
-CMD ["node", "scripts/railway-start.mjs"]
+# 1. This step creates the missing 'dist' or '.output' folder
+RUN npm run build
+
+# 2. Expose the port you configured in Railway
+EXPOSE 8787
+
+# 3. Start using Node directly, NOT wrangler
+CMD ["node", "dist/server/index.mjs"] 
