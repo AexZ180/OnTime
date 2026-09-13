@@ -21,5 +21,5 @@ export function googleConfig(appOrigin:string):GoogleConfig|null{
 export function config(){
   const origins=(process.env.APP_ORIGIN||'http://localhost:5173,http://127.0.0.1:5173').split(',').map(x=>new URL(x.trim()).origin);
   if(process.env.NODE_ENV==='production'&&origins.some(x=>!x.startsWith('https://')))throw new Error('Production APP_ORIGIN must use HTTPS.');
-  return {origins,appOrigin:origins[0],google:googleConfig(origins[0]),ticketmasterKey:process.env.TICKETMASTER_API_KEY?.trim()||undefined,secureCookies:origins.every(x=>x.startsWith('https://')),port:Number(process.env.API_PORT||3001)};
+  return {origins,appOrigin:origins[0],google:googleConfig(origins[0]),ticketmasterKey:process.env.TICKETMASTER_API_KEY?.trim()||undefined,secureCookies:origins.every(x=>x.startsWith('https://')),port:Number(process.env.API_PORT||process.env.PORT||3001)};
 }

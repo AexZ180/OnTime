@@ -17,6 +17,6 @@ const server=createServer(async(req,res)=>{
   }catch{res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":"Request failed."}')}
 });
 server.requestTimeout=15000;server.headersTimeout=10000;
-server.listen(settings.port,'127.0.0.1',()=>console.log(`OnTime API http://127.0.0.1:${settings.port} — storage: ${connection.mode}${connection.mode==='local'?' (persistent local PostgreSQL; not Tiger Data)':''} — Google sign-in: ${settings.google?'enabled':'not configured'}`));
+server.listen(settings.port,()=>console.log(`OnTime API on port ${settings.port} — storage: ${connection.mode}${connection.mode==='local'?' (persistent local PostgreSQL; not Tiger Data)':''} — Google sign-in: ${settings.google?'enabled':'not configured'}`));
 let stopping=false;async function stop(){if(stopping)return;stopping=true;server.close(async()=>{await connection.close();process.exit(0)});setTimeout(()=>process.exit(1),5000).unref()}
 process.on('SIGINT',stop);process.on('SIGTERM',stop);

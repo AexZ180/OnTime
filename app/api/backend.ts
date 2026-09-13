@@ -1,10 +1,9 @@
-import {env} from 'cloudflare:workers';
-
-// Native PostgreSQL and password hashing run in Node, outside the Worker bundle.
+// Native PostgreSQL and password hashing run in Node, in the separate API service.
+// API_BASE_URL points at it (on Railway: http://<api-service>.railway.internal:3001).
 export async function forward(request:Request){
   const url=new URL(request.url);
-  const configured=(env as unknown as {API_BASE_URL?:string}).API_BASE_URL;
-  const base=configured??(['localhost','127.0.0.1','[::1]'].includes(url.hostname)?'http://127.0.0.1:3001':null);
+  const configured=process.env.API_BASE_URL?.trim();
+  const base=configured||(['localhost','127.0.0.1','[::1]'].includes(url.hostname)?'http://127.0.0.1:3001':null);
   if(!base)return Response.json({error:'Configure API_BASE_URL for the OnTime Node backend.'},{status:503});
   const headers=new Headers();
   for(const name of ['cookie','content-type','origin','sec-fetch-site']){const value=request.headers.get(name);if(value)headers.set(name,value)}
