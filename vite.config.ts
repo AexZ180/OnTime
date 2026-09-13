@@ -36,6 +36,12 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
+  if (process.env.ONTIME_TARGET === 'railway') {
+    return {
+      resolve: { alias: { 'cloudflare:workers': new URL('./server/railway-env.ts', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1') } },
+      plugins: [vinext()],
+    };
+  }
   // Use Miniflare's local Request.cf placeholder unless fetching is requested.
   process.env.CLOUDFLARE_CF_FETCH_ENABLED ??= "false";
   process.env.WRANGLER_SEND_METRICS ??= "false";

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  ...(process.env.ONTIME_TARGET === 'railway' ? {output: 'standalone' as const} : {}),
 };
 
 export default nextConfig;

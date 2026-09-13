@@ -5,20 +5,31 @@
   "engines": {
     "node": ">=22.13.0"
   },
-  "scripts": {
-    "install:ci": "node scripts/install-ci.mjs",
-    "dev": "node scripts/dev.mjs",
-    "dev:frontend": "node scripts/run-framework.mjs dev",
-    "dev:api": "node --import tsx server/main.ts",
-    "start:api": "node --import tsx server/main.ts",
-    "test:backend": "node --import tsx --test tests/backend.test.ts",
-    "build": "node scripts/run-framework.mjs build",
-    "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
-    "start:web": "vinext start",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
-  },
+"scripts": {
+  "install:ci": "node scripts/install-ci.mjs",
+
+  "dev": "node scripts/dev.mjs",
+
+  "dev:frontend": "node scripts/run-framework.mjs dev",
+
+  "dev:api": "node --import tsx server/main.ts",
+
+  "start:api": "node --import tsx server/main.ts",
+
+  "test:backend": "node --import tsx --test tests/backend.test.ts",
+
+  "build": "node scripts/run-framework.mjs build",
+
+  "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 0.0.0.0 --port $PORT --inspector-port 0",
+
+  "start:web": "vinext start",
+
+  "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+
+  "db:generate": "drizzle-kit generate",
+
+  "db:migrate": "drizzle-kit migrate"
+},
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@electric-sql/pglite": "^0.5.8",
