@@ -1,105 +1,92 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f7f3e8">
-<meta name="description" content="Your OnTime dashboard. See your plans and make time for your people.">
-<title>OnTime · Your dashboard</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23294846'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23f7f3e8' stroke-width='2'/%3E%3Cpath d='M16 9v7l5 3' fill='none' stroke='%23f7f3e8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css">
-</head>
-<body class="dashboard-body">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OnTime Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23294846'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23f7f3e8' stroke-width='2'/%3E%3Cpath d='M16 9v7l5 3' fill='none' stroke='%23f7f3e8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="dashboard-base.css" /><link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body class="dashboard-body">
+    <div class="workspace">
+      <aside class="side-panel">
+        <div class="side-brand"><a href="index.html" class="brand-kicker">OnTime</a><span class="view-label">YOUR SOCIAL CALENDAR</span></div>
+        <div class="ollie-welcome"><img src="ollie.webp" alt="Ollie with his calendar crossbody bag"><p>A little time,<br><strong>together.</strong></p></div>
+        <button type="button" id="open-friends" class="quiet-button friends-launch">Friends &amp; hangouts</button><section class="upcoming-panel" aria-labelledby="upcoming-title"><div class="section-head"><h2 id="upcoming-title">Coming up</h2><span>Sample plans</span></div><h3 class="list-heading">Due dates</h3><div id="due-list"></div><h3 class="list-heading">Planned outings</h3><div id="outing-list"></div></section>
+        <section class="date-calendar" aria-label="Date and calendar"><div class="today-summary"><span class="eyebrow">TODAY</span><strong id="today-label"></strong><span id="current-time"></span></div><div class="calendar-toolbar"><button type="button" id="prev-month" class="calendar-nav" aria-label="Previous month in mini calendar">‹</button><span id="calendar-month-label" class="calendar-month-label"></span><button type="button" id="next-month" class="calendar-nav" aria-label="Next month in mini calendar">›</button></div><div class="calendar-weekdays" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div id="mini-calendar" class="mini-calendar"></div></section>
+      </aside>
+      <main class="calendar-workspace">
+        <header class="workspace-header"><div><p class="eyebrow">MAKE ROOM FOR THE GOOD STUFF</p><h1 id="calendar-greeting">Your calendar.</h1></div><button type="button" id="profile-btn" class="profile-btn" aria-label="Open profile settings"><img src="ollie-headshot.webp" alt="Ollie profile"></button></header>
+        <section class="selected-plans"><div class="selected-heading"><span class="eyebrow">ON YOUR CALENDAR</span><h2 id="selected-day-title"></h2></div><div id="schedule-list" class="schedule-list" aria-live="polite"></div></section>
+        <section class="large-calendar" aria-label="Monthly calendar"><div class="month-toolbar"><div class="month-heading"><h2 id="large-month-label"></h2><span id="large-year-label"></span></div><div class="month-actions"><button type="button" id="today-button" class="quiet-button">Today</button><button type="button" id="large-prev" class="calendar-nav" aria-label="Previous month">‹</button><button type="button" id="large-next" class="calendar-nav" aria-label="Next month">›</button><button type="button" id="add-plan" class="primary-button">+ Add plan</button></div></div><div class="large-weekdays" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div><div id="month-grid" class="month-grid" aria-label="Choose a day"></div><div class="calendar-legend"><span><i class="legend-dot outing"></i>Outing</span><span><i class="legend-dot deadline"></i>Due date</span><span><i class="legend-dot personal"></i>Personal</span><small>Preview · plans stay in this session</small></div></section>
 
-  <header class="app-header">
-    <div class="header-left">
-      <div class="ollie-mark" aria-hidden="true"><span class="ollie-face-mini"></span></div>
-      <a class="brand-lockup" href="dashboard.html" aria-label="OnTime home">
-        <span class="brand-kicker">OnTime</span>
-      </a>
+        <section class="discovery" aria-labelledby="discover-title"><div class="discovery-header"><div><span class="eyebrow">A LITTLE INSPIRATION</span><h2 id="discover-title">Around Houston, TX</h2></div><span class="example-badge">Location example</span></div><p class="discovery-note">Ticketmaster picks for Houston. Example listings checked September 12, 2026; availability may change. Your location is not being accessed.</p><div id="discovery-events"></div><a class="ticketmaster-more" href="https://www.ticketmaster.com/discover/houston" target="_blank" rel="noopener noreferrer">Explore Houston on Ticketmaster ↗</a></section>
+      </main>
     </div>
-    <div class="header-right">
-      <button class="profile-btn" id="profile-btn" type="button" aria-label="Open your profile">🦦</button>
-    </div>
-  </header>
 
-  <div class="dashboard-shell">
-    <aside class="calendar-panel" aria-label="Calendar">
-      <div class="calendar-toolbar">
-        <button class="calendar-nav" id="prev-month" type="button" aria-label="Previous month">‹</button>
-        <span class="calendar-month-label" id="calendar-month-label"></span>
-        <button class="calendar-nav" id="next-month" type="button" aria-label="Next month">›</button>
-      </div>
-      <div class="calendar-weekdays" aria-hidden="true">
-        <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
-      </div>
-      <div class="mini-calendar" id="mini-calendar" role="group" aria-label="Pick a date"></div>
-    </aside>
+    <div id="ollie-chat" class="ollie-chat" aria-live="polite">
+      <button type="button" id="ollie-chat-toggle" class="ollie-chat-toggle" aria-label="Open Ollie chat">
+        <img src="ollie.webp" alt="Ollie"><span class="chat-label">Ask Ollie</span>
+      </button>
 
-    <main class="main-panel">
-      <section class="schedule-card" aria-label="Plans for the selected day">
-        <div class="day-header">
-          <div>
-            <span class="eyebrow">YOUR PLANS</span>
-            <h1 id="selected-day-title"></h1>
+      <div id="ollie-chat-window" class="ollie-chat-window hidden" role="dialog" aria-label="Ollie chat">
+        <div class="chat-header">
+          <div class="chat-title-wrap">
+            <span class="chat-badge">Ollie</span>
+            <strong>Chat assistant</strong>
           </div>
+          <button type="button" id="close-chat" class="chat-close" aria-label="Close chat">×</button>
         </div>
-        <div class="schedule-list" id="schedule-list"></div>
-      </section>
-    </main>
-  </div>
-
-  <div class="ollie-chat" id="ollie-chat">
-    <button class="ollie-chat-toggle" id="ollie-chat-toggle" type="button" aria-label="Chat with Ollie">
-      <span class="ollie-face-small" aria-hidden="true"></span>
-    </button>
-    <div class="ollie-chat-window hidden" id="ollie-chat-window">
-      <div class="chat-header">
-        <div class="chat-title-wrap">
-          <span class="ollie-face-mini" aria-hidden="true"></span>
-          <strong>Ollie</strong>
-          <span class="chat-badge">Beta</span>
+        <div class="chat-body">
+          <div class="chat-message assistant">
+            Hi! I’m Ollie. This is a chat preview. I’ll help you plan once AI features are connected.
+          </div>
+          
+          
         </div>
-        <button class="chat-close" id="close-chat" type="button" aria-label="Close chat">×</button>
+        <form id="chat-form" class="chat-form">
+          <input type="text" id="chat-input" placeholder="Ask Ollie..." aria-label="Ask Ollie for help" />
+          <button type="submit" class="primary-button small">Send</button>
+        </form>
       </div>
-      <div class="chat-body"></div>
-      <form class="chat-form" id="chat-form">
-        <input id="chat-input" type="text" placeholder="Message Ollie…" autocomplete="off" aria-label="Message Ollie">
-        <button class="primary-button small" type="submit">Send</button>
-      </form>
     </div>
-  </div>
 
-  <dialog id="profile-dialog" aria-labelledby="profile-dialog-title">
-    <div class="profile-dialog-shell">
-      <div class="dialog-header">
-        <div>
-          <span class="eyebrow">YOUR ACCOUNT</span>
-          <h2 id="profile-dialog-title">Your profile</h2>
+    <dialog id="profile-dialog" aria-labelledby="profile-title">
+      <div class="profile-dialog-shell">
+        <div class="dialog-header">
+          <div>
+            <span class="eyebrow">PROFILE</span>
+            <h2 id="profile-title">Account settings</h2>
+          </div>
+          <button type="button" id="close-profile" class="dialog-close" aria-label="Close profile settings">×</button>
         </div>
-        <button class="dialog-close" id="close-profile" type="button" aria-label="Close dialog">×</button>
+
+        <p class="preview-note">Profile details are kept only in this browser tab. This is not a signed-in account.</p><form id="profile-form" class="profile-form">
+          <label class="profile-field">
+            <span>Username</span>
+            <input id="profile-username" type="text" placeholder="Your username" required />
+          </label>
+
+          <label class="profile-field">
+            <span>Email</span>
+            <input id="profile-email" type="email" placeholder="Your email" required />
+          </label>
+
+          <label class="profile-field">
+            <span>Password services are not connected</span>
+            <input id="profile-password" type="password" placeholder="Available with account services" disabled autocomplete="new-password" />
+          </label>
+
+          <div class="profile-actions">
+            <button type="button" id="delete-account" class="delete-button">Reset demo</button>
+            <button type="submit" class="primary-button">Save changes</button>
+          </div>
+        </form>
       </div>
-      <form class="profile-form" id="profile-form">
-        <div class="profile-field">
-          <label for="profile-username">Username</label>
-          <input id="profile-username" name="username" type="text" autocomplete="username" maxlength="24">
-        </div>
-        <div class="profile-field">
-          <label for="profile-email">Email</label>
-          <input id="profile-email" name="email" type="email" autocomplete="email" maxlength="254">
-        </div>
-        <div class="profile-field">
-          <label for="profile-password">Password</label>
-          <input id="profile-password" name="password" type="password" autocomplete="new-password" maxlength="128">
-        </div>
-        <div class="profile-actions">
-          <button class="delete-button" id="delete-account" type="button">Delete demo account</button>
-          <button class="primary-button" type="submit">Save changes</button>
-        </div>
-      </form>
-    </div>
-  </dialog>
+    </dialog>
 
-  <script src="dashboard.js"></script>
-</body>
+    <dialog id="plan-dialog" aria-labelledby="plan-title"><form id="plan-form" class="plan-form"><div class="dialog-header"><div><span class="eyebrow">MAKE A LITTLE TIME</span><h2 id="plan-title">Add a plan</h2></div><button type="button" id="close-plan" class="chat-close" aria-label="Close add plan">×</button></div><label>What’s the plan?<input id="plan-name" required maxlength="80" placeholder="Coffee with a friend"></label><input type="hidden" id="plan-date"><input type="hidden" id="plan-time"><div id="plan-date-controls"></div><div id="plan-time-controls"></div><p id="plan-error" class="form-error" role="alert"></p><label>Type<select id="plan-type" aria-label="Type"><option value="outing">Outing</option><option value="deadline">Due date</option><option value="personal">Personal</option></select></label><label>A little detail <span>(optional)</span><input id="plan-detail" maxlength="160" placeholder="Where, who, or anything to remember"></label><div id="plan-social"></div><p class="preview-note">Saved in this preview until you refresh the page.</p><button class="primary-button" type="submit">Add to calendar</button></form></dialog>
+    <dialog id="delete-plan-dialog" aria-labelledby="delete-plan-title"><div class="delete-content"><h2 id="delete-plan-title">Delete this event?</h2><p id="delete-plan-name"></p><p>This removes it from your preview calendar.</p><div class="delete-actions"><button type="button" id="cancel-delete" class="quiet-button">Keep event</button><button type="button" id="confirm-delete" class="delete-button">Delete event</button></div></div></dialog>
+    <dialog id="friends-dialog" class="social-dialog" aria-labelledby="friends-title"><div class="social-shell"><header class="dialog-header"><h2 id="friends-title">Time with your people</h2><button type="button" class="chat-close" id="close-friends" aria-label="Close friends">×</button></header><p class="social-note">Demo friends and availability. No requests or invitations are sent. Changes last until refresh.</p><form id="add-friend-form"><label for="friend-name">Add by OnTime username</label><div class="friend-add-row"><input id="friend-name" placeholder="e.g. alex_chen" maxlength="24" required><button class="primary-button">Add friend</button></div><p id="friend-error" role="status"></p></form><div id="friend-list"></div><section class="ollie-slots"><h3>Ollie’s hangout ideas</h3><p>Choose friends above. I’ll look for a shared hour over the next seven days.</p><button id="find-times" class="primary-button" type="button">Find a time together</button><div id="time-suggestions" aria-live="polite"></div></section></div></dialog><dialog id="sharing-dialog" class="social-dialog" aria-labelledby="sharing-title"><form id="sharing-form" class="social-shell"><header class="dialog-header"><h2 id="sharing-title">Invites &amp; visibility</h2><button type="button" class="chat-close" id="close-sharing" aria-label="Close sharing">×</button></header><p class="social-note">Frontend preview only. These settings demonstrate privacy; access control will be enforced by the backend.</p><div id="saved-plan-social"></div><button class="primary-button">Save settings</button></form></dialog><script src="profile.js"></script><script src="dashboard.js"></script><script src="social.js"></script>
+  </body>
 </html>

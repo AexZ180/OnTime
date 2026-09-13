@@ -1,455 +1,68 @@
-const screen = document.getElementById('screen');
-const dialog = document.getElementById('info-dialog');
-const state = {
-    step: 1,
-    username: '',
-    email: '',
-    phone: '',
-    dob: '',
-    gender: '',
-    checks: {},
-    googleSignIn: false
-};
-// Preview only: credentials and profile details are never sent or persisted.
-const usernamePattern = /^[A-Za-z][A-Za-z0-9_]{2,23}$/;
-const hasDisallowed = s => /\s|\p{Extended_Pictographic}|[\u200D\uFE0F\u20E3]/u.test(s);
-const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-}[c]));
-function field(id, label, type='text', placeholder='', value='', hint='', attrs='') {
-    return `<div class="field"><label for="${id}">${label}</label><div class="input-wrap"><input id="${id}" name="${id}" type="${type}" placeholder="${placeholder}" value="${escapeHtml(value)}" aria-describedby="${id}-hint ${id}-error" ${attrs}>${type === 'password' ? `<button class="reveal" type="button" data-reveal="${id}" aria-label="Show password">Show</button>` : ''}</div><p class="hint" id="${id}-hint">${hint}</p><p class="error" id="${id}-error" aria-live="polite"></p></div>`;
+const screen=document.getElementById('screen');
+const dialog=document.getElementById('info-dialog');
+const state={step:1,username:'',email:'',dob:'',gender:'',phone:'',google:false,birth:{month:'',day:'',year:''},checks:{}};
+// Preview only: passwords are never saved. Profile details can carry across this tab.
+const usernamePattern=/^[A-Za-z][A-Za-z0-9_]{2,23}$/;
+const hasDisallowed=s=>/\s|\p{Extended_Pictographic}|[\u200D\uFE0F\u20E3]/u.test(s);
+const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function field(id,label,type='text',placeholder='',value='',hint='',attrs=''){return `<div class="field"><label for="${id}">${label}</label><div class="input-wrap"><input id="${id}" name="${id}" type="${type}" placeholder="${placeholder}" value="${escapeHtml(value)}" aria-describedby="${id}-hint ${id}-error" ${attrs}>${type==='password'?`<button class="reveal" type="button" data-reveal="${id}" aria-label="Show password">Show</button>`:''}</div><p class="hint" id="${id}-hint">${hint}</p><p class="error" id="${id}-error" aria-live="polite"></p></div>`;}
+function err(id,message){const input=document.getElementById(id==='gender'?'gender-trigger':id==='dob'?'birth-month-trigger':id);input?.setAttribute('aria-invalid',message?'true':'false');const target=document.getElementById(id+'-error');if(target)target.textContent=message;return !message;}
+function openInfo(title,html){document.getElementById('dialog-title').textContent=title;document.getElementById('dialog-content').innerHTML=html;dialog.showModal();}
+document.querySelector('.dialog-close').onclick=()=>dialog.close();document.getElementById('dialog-done').onclick=()=>dialog.close();
+dialog.addEventListener('click',e=>{if(e.target===dialog&&e.clientX<dialog.getBoundingClientRect().left)dialog.close();});
+function focusHeading(){const h=screen.querySelector('h2');h?.setAttribute('tabindex','-1');h?.focus({preventScroll:true});}
+function bind(){screen.querySelectorAll('[data-reveal]').forEach(b=>b.onclick=()=>{const i=document.getElementById(b.dataset.reveal);i.type=i.type==='password'?'text':'password';b.textContent=i.type==='password'?'Show':'Hide';b.setAttribute('aria-label',`${b.textContent} password`);});screen.querySelectorAll('input,select').forEach(i=>i.addEventListener('input',()=>{err(i.id,'');if(i.id==='terms'&&i.checked){const notice=document.getElementById('checks-error');if(notice)notice.textContent='';}}));}
+function login(){screen.innerHTML=`<span class="section-tag">YOUR PEOPLE. YOUR PLANS.</span><h2>Welcome back.</h2><p class="subtitle">A little planning. A lot more together.</p><button class="google" type="button" id="google"><span class="google-g" aria-hidden="true">G</span>Continue with Google</button><div class="divider">or sign in with your details</div><form id="login" novalidate>${field('identity','Email, username, or phone number','text','you@example.com','','','autocomplete="username" maxlength="254" required')}${field('password','Password','password','Enter your password','','','autocomplete="current-password" maxlength="128" required')}<div class="forgot-row"><button class="text-button" id="forgot" type="button">Forgot password?</button></div><button class="primary" type="submit">Sign in</button></form><p class="switch">New around here? <a href="#signup">Create an account</a></p>`;
+document.getElementById('google').onclick=()=>openInfo('Continue with Google','<p>Google sign-in will be available once account services are connected.</p><p>New members will still choose an OnTime username and complete their profile.</p>');
+document.getElementById('forgot').onclick=()=>openInfo('Reset your password','<p>Password recovery will be available once account services are connected. No reset email is sent from this preview.</p>');
+document.getElementById('login').onsubmit=e=>{e.preventDefault();const v=document.getElementById('identity').value;let valid=!!v&&!hasDisallowed(v)&&(usernamePattern.test(v)||/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)||/^\+?[0-9]{7,15}$/.test(v));err('identity',valid?'':'Enter an email, username, or phone number without spaces or emojis.');const pw=document.getElementById('password').value;err('password',pw?'':'Enter your password.');if(valid&&pw){document.getElementById('password').value='';enterDemo(v);}else screen.querySelector('[aria-invalid="true"]')?.focus();};bind();}
+function signup(){const step=state.step;screen.innerHTML=`<div data-signup><button type="button" class="back" id="back">← ${step===1?'Back to sign in':'Back'}</button><div class="steps" aria-label="Step ${step} of 3">${[1,2,3].map(n=>`<span class="${n<=step?'active':''}"></span>`).join('')}</div><span class="section-tag">STEP ${step} OF 3</span><h2>${['Make yourself at home.','A little about you.','Good to know.'][step-1]}</h2><p class="subtitle">${['Your next good plan starts here.','Let’s put a person behind the plans.','A few things to know before we begin.'][step-1]}</p>${step===1?(state.google?'<div class="inline-notice">Google signup preview. You’ll choose your Google account when authentication is connected. Complete your OnTime profile below.</div><button class="text-button email-instead" type="button" id="email-instead">Use email instead</button>':'<button class="google" type="button" id="signup-google"><span class="google-g" aria-hidden="true">G</span>Sign up with Google</button><div class="divider">or create an account with email</div>'):''}<form id="signup" novalidate>${step===1?`${field('username','Choose your username','text','e.g. jeimy_01',state.username,'3–24 characters. Start with a letter. Letters, numbers, and underscores only.','autocomplete="username" maxlength="24" required')}${state.google?field('email','Email for this preview','email','you@example.com',state.email,'Google is not connected; enter the email you want displayed.','required maxlength="254"'):`${field('email','Email address','email','you@example.com',state.email,'','autocomplete="email" maxlength="254" required')}${field('new-password','Create a password','password','At least 12 characters','','12–128 characters. No spaces or emojis.','autocomplete="new-password" minlength="12" maxlength="128" required')}`}${field('phone','Phone number · optional','tel','e.g. +15551234567',state.phone,'Include your country code. No spaces or emojis.','autocomplete="tel" inputmode="tel" maxlength="16"')}`:step===2?`<div class="profile-fields">${birthdayFields()}<div class="field gender-field"><label id="gender-label" for="gender-trigger">Gender</label><input type="hidden" id="gender" name="gender" value="${escapeHtml(state.gender)}"><div class="gender-picker"><button class="select-trigger" id="gender-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="gender-options" aria-labelledby="gender-label gender-value" aria-describedby="gender-error"><span id="gender-value">${escapeHtml(state.gender)||'Select an option'}</span><span class="chevron" aria-hidden="true"></span></button><div class="select-options" id="gender-options" role="listbox" aria-labelledby="gender-label" hidden>${['Woman','Man','Non-binary','Prefer not to say'].map((g,i)=>`<button type="button" role="option" data-gender="${g}" aria-selected="${state.gender===g}" tabindex="-1">${g}<span aria-hidden="true">${state.gender===g?'✓':''}</span></button>`).join('')}</div></div><p class="hint">You’re always welcome to keep this private.</p><p class="error" id="gender-error" aria-live="polite"></p></div></div>`:`<div class="agreements">${[
+['terms','Terms & conditions','I have read and agree to the <button type="button" class="text-button" id="terms-link">Terms & Conditions</button>.'],
+['recommendations','Event recommendations · optional','I’d like OnTime to suggest events I might enjoy using interests and other information I choose to share. I can change this choice later.']
+].map(([id,title,copy])=>`<label class="check-row"><input id="${id}" type="checkbox" ${state.checks[id]?'checked':''}><span class="check-copy"><strong>${title}</strong>${copy}</span></label>`).join('')}</div><p class="error" id="checks-error" aria-live="polite"></p>`}<button class="primary" type="submit">${step===3?'Create account':'Continue'}</button></form>${step===3?'<p class="small-note">Recommendations are optional and won’t affect account creation.</p>':''}</div>`;
+document.getElementById('signup-google')?.addEventListener('click',()=>{remember();state.google=true;signup();focusHeading();});document.getElementById('email-instead')?.addEventListener('click',()=>{remember();state.google=false;signup();focusHeading();});
+document.getElementById('back').onclick=()=>{remember();if(state.step===1)location.hash='login';else{state.step--;signup();focusHeading();}};
+if(step===2){bindBirthday();bindGender();}
+document.getElementById('terms-link')?.addEventListener('click',e=>{e.preventDefault();openInfo('Terms & conditions','<p><strong>Preview terms for OnTime</strong></p><h3>Planning & reminders</h3><p>You are responsible for tracking your events, deadlines, and commitments. Notifications may be delayed or unavailable. OnTime does not guarantee reminders and is not responsible for missed obligations.</p><h3>AI assistance</h3><p>OnTime was created with AI assistance. AI-powered suggestions may be inaccurate; review them before relying on them.</p><h3>Location choices</h3><p>Some features need location access while you use them. Permission will be requested separately. You can decline and continue using features that do not need location. No background location tracking is intended, and this frontend does not access your location.</p><p>These are draft acknowledgments for the frontend preview; final service terms and privacy information will be added before account registration is enabled.</p>');});
+document.getElementById('signup').onsubmit=e=>{e.preventDefault();remember();let valid=true;
+if(step===1){valid=err('username',usernamePattern.test(state.username)?'':'Use 3–24 letters, numbers, or underscores; start with a letter.')&&valid;valid=err('email',/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(state.email)?'':'Enter a valid email without spaces or emojis.')&&valid;if(!state.google){const pw=document.getElementById('new-password').value;valid=err('new-password',pw.length>=12&&pw.length<=128&&!hasDisallowed(pw)?'':'Use 12–128 characters without spaces or emojis.')&&valid;}valid=err('phone',!state.phone||/^\+?[0-9]{7,15}$/.test(state.phone)?'':'Use 7–15 digits, optionally starting with +. No spaces or emojis.')&&valid;}
+if(step===2){const date=new Date(state.dob+'T12:00:00');const now=new Date();valid=err('dob',state.dob&&Number.isFinite(+date)&&date.getFullYear()>0&&state.dob<=todayISO()&&date.getDate()===Number(state.birth.day)&&date.getMonth()+1===Number(state.birth.month)&&date.getFullYear()===Number(state.birth.year)?'':'Choose a valid date of birth that isn’t in the future.')&&valid;valid=err('gender',state.gender?'':'Choose an option, including “Prefer not to say”.')&&valid;}
+if(step===3){valid=!!state.checks.terms;document.getElementById('checks-error').textContent=valid?'':'Please agree to the Terms & Conditions to continue.';}
+if(valid){if(step<3){state.step++;signup();focusHeading();}else complete();}else{screen.querySelector('[aria-invalid="true"]')?.focus();if(step===3)screen.querySelector('input:not(:checked)')?.focus();}};bind();}
+function remember(){for(const k of ['username','email','dob','gender','phone']){const i=document.getElementById(k);if(i)state[k]=i.value;}for(const k of ['terms','recommendations']){const i=document.getElementById(k);if(i)state.checks[k]=i.checked;}}
+function complete(){OnTimeProfile.save({username:state.username,email:state.email,phone:state.phone,recommendations:state.checks.recommendations});screen.innerHTML=`<div class="success-icon" aria-hidden="true">✓</div><span class="section-tag">ALL SET FOR THE NEXT STEP</span><h2>Looks good, <span id="chosen-name"></span>.</h2><p class="subtitle">You’ve completed the signup preview.</p><div class="summary">Your username and email will carry into the calendar in this browser tab. No real account is created and your password is never saved.</div><a class="primary dashboard-link" href="dashboard.html">Explore your calendar</a><button class="text-button" id="finish" style="margin-top:18px">Back to sign in</button>`;document.getElementById('chosen-name').textContent=state.username;document.getElementById('finish').onclick=()=>{state.step=1;state.username='';state.email='';state.dob='';state.gender='';state.phone='';state.google=false;state.birth={month:'',day:'',year:''};state.checks={};location.hash='login';};focusHeading();}
+function route(){if(location.hash==='#signup')signup();else login();}
+function todayISO(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
+const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function birthdayFields(){return `<fieldset class="birthday-field"><legend>Date of birth</legend><input type="hidden" id="dob" value="${escapeHtml(state.dob)}"><div class="birthday-row">${['month','day','year'].map(part=>{const value=state.birth[part];const label=part[0].toUpperCase()+part.slice(1);let values=part==='month'?months.map((label,i)=>({value:String(i+1),label})):part==='day'?Array.from({length:31},(_,i)=>({value:String(i+1),label:String(i+1)})):Array.from({length:new Date().getFullYear()-1899},(_,i)=>({value:String(new Date().getFullYear()-i),label:String(new Date().getFullYear()-i)}));return `<div class="birth-picker"><label id="birth-${part}-label" for="birth-${part}-trigger">${label}</label><button class="select-trigger" id="birth-${part}-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="birth-${part}-options" aria-labelledby="birth-${part}-label birth-${part}-value" aria-describedby="dob-error"><span id="birth-${part}-value">${value?(part==='month'?months[Number(value)-1]:value):label}</span><span class="chevron" aria-hidden="true"></span></button><div class="select-options" id="birth-${part}-options" role="listbox" aria-labelledby="birth-${part}-label" hidden>${values.map(o=>`<button type="button" role="option" data-value="${o.value}" aria-selected="${value===o.value}" tabindex="-1">${o.label}<span aria-hidden="true">${value===o.value?'✓':''}</span></button>`).join('')}</div></div>`;}).join('')}</div><p class="hint">Month, day, and year.</p><p class="error" id="dob-error" aria-live="polite"></p></fieldset>`;}
+function bindBirthday(){
+ for(const part of ['month','day','year']){
+  const trigger=document.getElementById(`birth-${part}-trigger`),list=document.getElementById(`birth-${part}-options`),options=[...list.children];
+  const close=(focus=false)=>{list.hidden=true;trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus();};
+  const open=()=>{document.querySelectorAll('.birth-picker .select-options').forEach(l=>l.hidden=true);document.querySelectorAll('.birth-picker .select-trigger').forEach(b=>b.setAttribute('aria-expanded','false'));list.hidden=false;list.classList.remove('above');if(list.getBoundingClientRect().bottom>document.querySelector('.auth-card').getBoundingClientRect().bottom-12)list.classList.add('above');trigger.setAttribute('aria-expanded','true');const chosen=options.find(o=>o.getAttribute('aria-selected')==='true')||options[0];chosen.focus({preventScroll:true});list.scrollTop=chosen.offsetTop-list.clientHeight/2;};
+  trigger.onclick=()=>list.hidden?open():close();trigger.onkeydown=e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();open();}};
+  let search='',last=0;
+  options.forEach((option,index)=>{option.onclick=()=>{state.birth[part]=option.dataset.value;document.getElementById(`birth-${part}-value`).textContent=part==='month'?months[Number(option.dataset.value)-1]:option.dataset.value;options.forEach(o=>{o.setAttribute('aria-selected',String(o===option));o.lastElementChild.textContent=o===option?'✓':'';});const {year,month,day}=state.birth;state.dob=year&&month&&day?`${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`:'';document.getElementById('dob').value=state.dob;err('dob','');close(true);};option.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();close(true);}if(e.key==='Tab')close();if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();options[e.key==='Home'?0:e.key==='End'?options.length-1:(index+(e.key==='ArrowDown'?1:-1)+options.length)%options.length].focus();}else if(e.key.length===1&&/[a-z0-9]/i.test(e.key)){e.preventDefault();const now=Date.now();search=(now-last<800?search:'')+e.key.toLowerCase();last=now;options.find(o=>o.textContent.toLowerCase().startsWith(search))?.focus();}};});
+  trigger.parentElement.addEventListener('focusout',e=>{if(!e.currentTarget.contains(e.relatedTarget))close();});
+ }
 }
-function err(id, message) {
-    const ids = id === 'gender' ? ['gender-trigger'] : id === 'dob' ? ['dob-month-trigger', 'dob-day-trigger', 'dob-year-trigger'] : [id];
-    ids.forEach(elId => document.getElementById(elId)?.setAttribute('aria-invalid', message ? 'true' : 'false'));
-    const target = document.getElementById(id + '-error');
-    if (target)
-        target.textContent = message;
-    return !message;
+document.addEventListener('pointerdown',e=>document.querySelectorAll('.birth-picker').forEach(p=>{if(!p.contains(e.target)){p.querySelector('.select-options').hidden=true;p.querySelector('.select-trigger').setAttribute('aria-expanded','false');}}));
+function bindGender(){
+ const trigger=document.getElementById('gender-trigger'),list=document.getElementById('gender-options');
+ const options=[...list.querySelectorAll('[role="option"]')];
+ const close=(focus=false)=>{list.hidden=true;trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus();};
+ const open=()=>{list.classList.remove('above');list.hidden=false;if(list.getBoundingClientRect().bottom>document.querySelector('.auth-card').getBoundingClientRect().bottom-12)list.classList.add('above');trigger.setAttribute('aria-expanded','true');(options.find(o=>o.getAttribute('aria-selected')==='true')||options[0]).focus();};
+ trigger.onclick=()=>list.hidden?open():close();
+ trigger.onkeydown=e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();open();}};
+ options.forEach((option,index)=>{option.onclick=()=>{state.gender=option.dataset.gender;document.getElementById('gender').value=state.gender;document.getElementById('gender-value').textContent=state.gender;options.forEach(o=>{const chosen=o===option;o.setAttribute('aria-selected',String(chosen));o.lastElementChild.textContent=chosen?'✓':'';});err('gender','');close(true);};option.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();close(true);}if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?options.length-1:(index+(e.key==='ArrowDown'?1:-1)+options.length)%options.length;options[next].focus();}if(e.key==='Tab')close();};});
+ document.querySelector('.gender-picker').addEventListener('focusout',e=>{if(!e.currentTarget.contains(e.relatedTarget))close();});
 }
-function openInfo(title, html) {
-    document.getElementById('dialog-title').textContent = title;
-    document.getElementById('dialog-content').innerHTML = html;
-    dialog.showModal();
+document.addEventListener('pointerdown',e=>{const picker=document.querySelector('.gender-picker');if(picker&&!picker.contains(e.target)){document.getElementById('gender-options').hidden=true;document.getElementById('gender-trigger').setAttribute('aria-expanded','false');}});
+addEventListener('hashchange',()=>{route();focusHeading();});route();
+
+function enterDemo(identity){
+ const saved=OnTimeProfile.read();if(saved&&[saved.username,saved.email,saved.phone].includes(identity)){location.href='dashboard.html';return;}
+ const isEmail=identity.includes('@'),isPhone=/^\+?[0-9]{7,15}$/.test(identity);
+ openInfo('Your preview profile',`<p>Complete your display details for this demo. No authentication is performed.</p><form id="demo-profile-form">${field('demo-username','Username','text','Your username',!isEmail&&!isPhone?identity:'','','required maxlength="24"')}${field('demo-email','Email','email','you@example.com',isEmail?identity:'','','required maxlength="254"')}<button class="primary" type="submit">Open my calendar</button></form>`);
+ document.getElementById('demo-profile-form').onsubmit=e=>{e.preventDefault();const name=document.getElementById('demo-username').value,email=document.getElementById('demo-email').value;if(!usernamePattern.test(name)){err('demo-username','Use 3–24 letters, numbers, or underscores, starting with a letter.');return;}if(!OnTimeProfile.save({username:name,email,phone:isPhone?identity:''})){err('demo-email','Browser storage is unavailable. Allow session storage to carry your profile.');return;}location.href='dashboard.html';};
 }
-document.querySelector('.dialog-close').onclick = () => dialog.close();
-document.getElementById('dialog-done').onclick = () => dialog.close();
-dialog.addEventListener('click', e => {
-    if (e.target === dialog && e.clientX < dialog.getBoundingClientRect().left)
-        dialog.close();
-}
-);
-function renderSelectOptions(options, selected) {
-    return options.map(o => `<button type="button" role="option" data-value="${escapeHtml(o.value)}" aria-selected="${o.value === selected}" tabindex="-1">${escapeHtml(o.label)}<span aria-hidden="true">${o.value === selected ? '✓' : ''}</span></button>`).join('');
-}
-function renderCustomSelect(prefix, labelledby, describedby, options, selected, placeholder) {
-    const current = options.find(o => o.value === selected);
-    return `<div class="custom-select" id="${prefix}-wrap"><button class="select-trigger" id="${prefix}-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="${prefix}-options" aria-labelledby="${labelledby} ${prefix}-value" aria-describedby="${describedby}"><span id="${prefix}-value">${escapeHtml(current ? current.label : placeholder)}</span><span class="chevron" aria-hidden="true"></span></button><div class="select-options" id="${prefix}-options" role="listbox" aria-labelledby="${labelledby}" hidden>${renderSelectOptions(options, selected)}</div></div>`;
-}
-function bindCustomSelect(prefix, onSelect) {
-    const trigger = document.getElementById(`${prefix}-trigger`)
-      , list = document.getElementById(`${prefix}-options`)
-      , wrap = document.getElementById(`${prefix}-wrap`);
-    if (!trigger || !list)
-        return;
-    const options = [...list.querySelectorAll('[role="option"]')];
-    const close = (focus=false) => {
-        list.hidden = true;
-        trigger.setAttribute('aria-expanded', 'false');
-        if (focus)
-            trigger.focus();
-    }
-    ;
-    const open = () => {
-        list.classList.remove('above');
-        list.hidden = false;
-        if (list.getBoundingClientRect().bottom > document.querySelector('.auth-card').getBoundingClientRect().bottom - 12)
-            list.classList.add('above');
-        trigger.setAttribute('aria-expanded', 'true');
-        (options.find(o => o.getAttribute('aria-selected') === 'true') || options[0])?.focus();
-    }
-    ;
-    trigger.onclick = () => list.hidden ? open() : close();
-    trigger.onkeydown = e => {
-        if (['ArrowDown', 'ArrowUp'].includes(e.key)) {
-            e.preventDefault();
-            open();
-        }
-    }
-    ;
-    options.forEach( (option, index) => {
-        option.onclick = () => {
-            options.forEach(o => {
-                const chosen = o === option;
-                o.setAttribute('aria-selected', String(chosen));
-                o.lastElementChild.textContent = chosen ? '✓' : '';
-            }
-            );
-            close(true);
-            onSelect(option.dataset.value, option.firstChild.textContent);
-        }
-        ;
-        option.onkeydown = e => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                close(true);
-            }
-            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
-                e.preventDefault();
-                const next = e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : (index + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
-                options[next].focus();
-            }
-            if (e.key === 'Tab')
-                close();
-        }
-        ;
-    }
-    );
-    if (wrap)
-        wrap.onfocusout = e => {
-            if (!wrap.contains(e.relatedTarget))
-                close();
-        }
-        ;
-}
-const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-function monthOptions() {
-    return monthNames.map( (m, i) => ({
-        value: String(i + 1).padStart(2, '0'),
-        label: m
-    }));
-}
-function daysInMonth(month, year) {
-    if (!month)
-        return 31;
-    const y = year ? Number(year) : 2000;
-    return new Date(y,Number(month),0).getDate();
-}
-function dayOptions(month, year) {
-    const count = daysInMonth(month, year);
-    return Array.from({
-        length: count
-    }, (_, i) => ({
-        value: String(i + 1).padStart(2, '0'),
-        label: String(i + 1)
-    }));
-}
-function yearOptions() {
-    const current = new Date().getFullYear();
-    const years = [];
-    for (let y = current; y >= current - 120; y--)
-        years.push({
-            value: String(y),
-            label: String(y)
-        });
-    return years;
-}
-function genderOptions() {
-    return ['Woman', 'Man', 'Non-binary', 'Prefer not to say'].map(g => ({
-        value: g,
-        label: g
-    }));
-}
-function dobField() {
-    const [y = '', m = '', d = ''] = (state.dob || '').split('-');
-    return `<div class="field dob-field"><label id="dob-label" for="dob-month-trigger">Date of birth</label><input type="hidden" id="dob" name="dob" value="${escapeHtml(state.dob)}"><div class="dob-grid">${renderCustomSelect('dob-month', 'dob-label', 'dob-error', monthOptions(), m, 'Month')}${renderCustomSelect('dob-day', 'dob-label', 'dob-error', dayOptions(m, y), d, 'Day')}${renderCustomSelect('dob-year', 'dob-label', 'dob-error', yearOptions(), y, 'Year')}</div><p class="hint">Choose your birthday.</p><p class="error" id="dob-error" aria-live="polite"></p></div>`;
-}
-function genderField() {
-    return `<div class="field gender-field"><label id="gender-label" for="gender-trigger">Gender</label><input type="hidden" id="gender" name="gender" value="${escapeHtml(state.gender)}">${renderCustomSelect('gender', 'gender-label', 'gender-error', genderOptions(), state.gender, 'Select an option')}<p class="hint">You're always welcome to keep this private.</p><p class="error" id="gender-error" aria-live="polite"></p></div>`;
-}
-function bindDob() {
-    const parts = () => {
-        const [y = '', m = '', d = ''] = (state.dob || '').split('-');
-        return {
-            y,
-            m,
-            d
-        };
-    }
-    ;
-    const setParts = ({y, m, d}) => {
-        state.dob = (y || m || d) ? `${y}-${m}-${d}` : '';
-        const hidden = document.getElementById('dob');
-        if (hidden)
-            hidden.value = state.dob;
-        err('dob', '');
-    }
-    ;
-    const refreshDay = () => {
-        const {y, m, d} = parts();
-        const options = dayOptions(m, y);
-        const valid = d && options.some(o => o.value === d) ? d : '';
-        if (valid !== d)
-            setParts({
-                y,
-                m,
-                d: valid
-            });
-        const list = document.getElementById('dob-day-options');
-        list.innerHTML = renderSelectOptions(options, valid);
-        const current = options.find(o => o.value === valid);
-        document.getElementById('dob-day-value').textContent = current ? current.label : 'Day';
-        bindCustomSelect('dob-day', (value, label) => {
-            setParts({
-                ...parts(),
-                d: value
-            });
-            document.getElementById('dob-day-value').textContent = label;
-        }
-        );
-    }
-    ;
-    bindCustomSelect('dob-month', (value, label) => {
-        setParts({
-            ...parts(),
-            m: value
-        });
-        document.getElementById('dob-month-value').textContent = label;
-        refreshDay();
-    }
-    );
-    bindCustomSelect('dob-year', (value, label) => {
-        setParts({
-            ...parts(),
-            y: value
-        });
-        document.getElementById('dob-year-value').textContent = label;
-        refreshDay();
-    }
-    );
-    refreshDay();
-}
-function bindGender() {
-    bindCustomSelect('gender', (value, label) => {
-        state.gender = value;
-        const hidden = document.getElementById('gender');
-        if (hidden)
-            hidden.value = value;
-        document.getElementById('gender-value').textContent = label;
-        err('gender', '');
-    }
-    );
-}
-function focusHeading() {
-    const h = screen.querySelector('h2');
-    h?.setAttribute('tabindex', '-1');
-    h?.focus({
-        preventScroll: true
-    });
-}
-function bind() {
-    screen.querySelectorAll('[data-reveal]').forEach(b => b.onclick = () => {
-        const i = document.getElementById(b.dataset.reveal);
-        i.type = i.type === 'password' ? 'text' : 'password';
-        b.textContent = i.type === 'password' ? 'Show' : 'Hide';
-        b.setAttribute('aria-label', `${b.textContent} password`);
-    }
-    );
-    screen.querySelectorAll('input,select').forEach(i => i.addEventListener('input', () => {
-        err(i.id, '');
-        if (i.id === 'terms' && i.checked) {
-            const notice = document.getElementById('checks-error');
-            if (notice)
-                notice.textContent = '';
-        }
-    }
-    ));
-}
-function login() {
-    screen.innerHTML = `<span class="section-tag">YOUR PEOPLE. YOUR PLANS.</span><h2>Welcome back.</h2><p class="subtitle">A little planning. A lot more together.</p><button class="google" type="button" id="google"><span class="google-g" aria-hidden="true">G</span>Continue with Google</button><div class="divider">or sign in with your details</div><form id="login" novalidate>${field('identity', 'Email, username, or phone number', 'text', 'you@example.com', '', '', 'autocomplete="username" maxlength="254" required')}${field('password', 'Password', 'password', 'Enter your password', '', '', 'autocomplete="current-password" maxlength="128" required')}<div class="forgot-row"><button class="text-button" id="forgot" type="button">Forgot password?</button></div><button class="primary" type="submit">Sign in</button></form><p class="switch">New around here? <a href="#signup">Create an account</a></p>`;
-    document.getElementById('google').onclick = () => {
-        state.googleSignIn = true;
-        state.step = 2;
-        location.hash = 'signup';
-    };
-    document.getElementById('forgot').onclick = () => {
-        openInfo('Reset your password', `<form id="reset-form" novalidate>${field('reset-email', 'Email address', 'email', 'you@example.com', '', 'Enter the email associated with your account', 'autocomplete="email" maxlength="254" required')}<div style="display: flex; gap: 12px; margin-top: 20px;"><button type="button" class="text-button" id="reset-back" style="flex: 1;">Back</button><button type="submit" class="primary" id="reset-submit" style="flex: 1;">Send recovery email</button></div></form>`);
-        document.getElementById('reset-back').onclick = () => dialog.close();
-        document.getElementById('reset-form').onsubmit = e => {
-            e.preventDefault();
-            const email = document.getElementById('reset-email').value;
-            const valid = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(email);
-            if (valid) {
-                document.getElementById('dialog-content').innerHTML = '<div style="text-align: center;"><div class="success-icon" aria-hidden="true">✓</div><h3 style="margin-top: 16px;">Check your email</h3><p>If an account exists with <strong>' + escapeHtml(email) + '</strong>, you\'ll receive a password reset link.</p><p style="font-size: 14px; color: #657875; margin-top: 20px;">Didn\'t receive it? Check your spam folder.</p></div>';
-                document.getElementById('dialog-done').focus();
-            } else {
-                err('reset-email', 'Enter a valid email address.');
-            }
-        };
-    };
-    document.getElementById('login').onsubmit = e => {
-        e.preventDefault();
-        const v = document.getElementById('identity').value;
-        let valid = !!v && !hasDisallowed(v) && (usernamePattern.test(v) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || /^\+?[0-9]{7,15}$/.test(v));
-        err('identity', valid ? '' : 'Enter an email, username, or phone number without spaces or emojis.');
-        const pw = document.getElementById('password').value;
-        err('password', pw ? '' : 'Enter your password.');
-        if (valid && pw) {
-            document.getElementById('password').value = '';
-            window.location.href = 'dashboard.html';
-        } else
-            screen.querySelector('[aria-invalid="true"]')?.focus();
-    }
-    ;
-    bind();
-}
-function signup() {
-    const step = state.step;
-    const isGoogle = state.googleSignIn;
-    const totalSteps = isGoogle ? 2 : 3;
-    const displayStep = isGoogle ? (step === 2 ? 1 : step === 3 ? 2 : step) : step;
-    
-    let stepTitle, stepSubtitle, stepContent;
-    
-    if (isGoogle) {
-        if (step === 2) {
-            stepTitle = 'A little about you.';
-            stepSubtitle = 'Let\'s put a person behind the plans.';
-            stepContent = `<div class="profile-fields">${dobField()}${genderField()}</div>`;
-        } else {
-            stepTitle = 'Good to know.';
-            stepSubtitle = 'A few things to know before we begin.';
-            stepContent = `<div class="agreements">${[['terms', 'Terms & conditions', 'I have read and agree to the <button type="button" class="text-button" id="terms-link">Terms & Conditions</button>.'], ['recommendations', 'Event recommendations · optional', 'I\'d like OnTime to suggest events I might enjoy using interests and other information I choose to share. I can change this choice later.']].map( ([id,title,copy]) => `<label class="check-row"><input id="${id}" type="checkbox" ${state.checks[id] ? 'checked' : ''}><span class="check-copy"><strong>${title}</strong>${copy}</span></label>`).join('')}</div><p class="error" id="checks-error" aria-live="polite"></p>`;
-        }
-    } else {
-        if (step === 1) {
-            stepTitle = 'Make yourself at home.';
-            stepSubtitle = 'Your next good plan starts here.';
-            stepContent = `${field('username', 'Choose your username', 'text', 'e.g. jeimy_01', state.username, '3–24 characters. Start with a letter. Letters, numbers, and underscores only.', 'autocomplete="username" maxlength="24" required')}${field('email', 'Email address', 'email', 'you@example.com', state.email, '', 'autocomplete="email" maxlength="254" required')}${field('phone', 'Phone number · optional', 'tel', '+1 (555) 000-0000', state.phone, 'Enter a phone number or leave blank.', 'autocomplete="tel" maxlength="20"')}${field('new-password', 'Create a password', 'password', 'At least 12 characters', '', '12–128 characters. No spaces or emojis.', 'autocomplete="new-password" minlength="12" maxlength="128" required')}`;
-        } else if (step === 2) {
-            stepTitle = 'A little about you.';
-            stepSubtitle = 'Let\'s put a person behind the plans.';
-            stepContent = `<div class="profile-fields">${dobField()}${genderField()}</div>`;
-        } else {
-            stepTitle = 'Good to know.';
-            stepSubtitle = 'A few things to know before we begin.';
-            stepContent = `<div class="agreements">${[['terms', 'Terms & conditions', 'I have read and agree to the <button type="button" class="text-button" id="terms-link">Terms & Conditions</button>.'], ['recommendations', 'Event recommendations · optional', 'I\'d like OnTime to suggest events I might enjoy using interests and other information I choose to share. I can change this choice later.']].map( ([id,title,copy]) => `<label class="check-row"><input id="${id}" type="checkbox" ${state.checks[id] ? 'checked' : ''}><span class="check-copy"><strong>${title}</strong>${copy}</span></label>`).join('')}</div><p class="error" id="checks-error" aria-live="polite"></p>`;
-        }
-    }
-    
-    const backText = (step === 1 || (isGoogle && step === 2)) ? 'Back to sign in' : 'Back';
-    const stepIndicators = Array.from({length: totalSteps}, (_, n) => n + 1).map(n => `<span class="${n <= displayStep ? 'active' : ''}"></span>`).join('');
-    const buttonText = (isGoogle && step === 3) || (!isGoogle && step === 3) ? 'Create account' : 'Continue';
-    const smallNote = ((isGoogle && step === 3) || (!isGoogle && step === 3)) ? '<p class="small-note">Recommendations are optional and won\'t affect account creation.</p>' : '';
-    
-    screen.innerHTML = `<div data-signup><button type="button" class="back" id="back">← ${backText}</button><div class="steps" aria-label="Step ${displayStep} of ${totalSteps}">${stepIndicators}</div><span class="section-tag">STEP ${displayStep} OF ${totalSteps}</span><h2>${stepTitle}</h2><p class="subtitle">${stepSubtitle}</p><form id="signup" novalidate>${stepContent}<button class="primary" type="submit">${buttonText}</button></form>${smallNote}</div>`;
-    
-    document.getElementById('back').onclick = () => {
-        remember();
-        if (state.googleSignIn) {
-            if (state.step === 2) {
-                state.googleSignIn = false;
-                state.step = 1;
-                location.hash = 'login';
-            } else {
-                state.step--;
-                signup();
-                focusHeading();
-            }
-        } else {
-            if (state.step === 1)
-                location.hash = 'login';
-            else {
-                state.step--;
-                signup();
-                focusHeading();
-            }
-        }
-    }
-    ;
-    if ((isGoogle && step === 2) || (!isGoogle && step === 2)) {
-        bindDob();
-        bindGender();
-    }
-    document.getElementById('terms-link')?.addEventListener('click', e => {
-        e.preventDefault();
-        openInfo('Terms & conditions', '<p><strong>Preview terms for OnTime</strong></p><h3>Planning & reminders</h3><p>You are responsible for tracking your events, deadlines, and commitments. Notifications may be delayed or unavailable. OnTime does not guarantee reminders and is not responsible for missed obligations.</p><h3>AI assistance</h3><p>OnTime was created with AI assistance. AI-powered suggestions may be inaccurate; review them before relying on them.</p><h3>Location choices</h3><p>Some features need location access while you use them. Permission will be requested separately. You can decline and continue using features that do not need location. No background location tracking is intended, and this frontend does not access your location.</p><p>These are draft acknowledgments for the frontend preview; final service terms and privacy information will be added before account registration is enabled.</p>');
-    }
-    );
-    document.getElementById('signup').onsubmit = e => {
-        e.preventDefault();
-        remember();
-        let valid = true;
-        
-        if (!isGoogle && step === 1) {
-            valid = err('username', usernamePattern.test(state.username) ? '' : 'Use 3–24 letters, numbers, or underscores; start with a letter.') && valid;
-            valid = err('email', /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(state.email) ? '' : 'Enter a valid email without spaces or emojis.') && valid;
-            const pw = document.getElementById('new-password').value;
-            valid = err('new-password', pw.length >= 12 && pw.length <= 128 && !hasDisallowed(pw) ? '' : 'Use 12–128 characters without spaces or emojis.') && valid;
-        }
-        
-        if ((isGoogle && step === 2) || (!isGoogle && step === 2)) {
-            const date = new Date(state.dob + 'T12:00:00');
-            const today = new Date();
-            const todayIso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
-            valid = err('dob', state.dob && Number.isFinite(+date) && date.getFullYear() > 0 && state.dob <= todayIso ? '' : 'Choose a full date of birth that isn\'t in the future.') && valid;
-            valid = err('gender', state.gender ? '' : 'Choose an option, including "Prefer not to say".') && valid;
-        }
-        
-        if ((isGoogle && step === 3) || (!isGoogle && step === 3)) {
-            valid = !!state.checks.terms;
-            document.getElementById('checks-error').textContent = valid ? '' : 'Please agree to the Terms & Conditions to continue.';
-        }
-        
-        if (valid) {
-            const maxSteps = isGoogle ? 3 : 3;
-            if (step < maxSteps) {
-                state.step++;
-                signup();
-                focusHeading();
-            } else
-                complete();
-        } else {
-            screen.querySelector('[aria-invalid="true"]')?.focus();
-            if ((isGoogle && step === 3) || (!isGoogle && step === 3))
-                screen.querySelector('input:not(:checked)')?.focus();
-        }
-    }
-    ;
-    bind();
-}
-function remember() {
-    for (const k of ['username', 'email', 'phone', 'dob', 'gender']) {
-        const i = document.getElementById(k);
-        if (i)
-            state[k] = i.value;
-    }
-    for (const k of ['terms', 'recommendations']) {
-        const i = document.getElementById(k);
-        if (i)
-            state.checks[k] = i.checked;
-    }
-}
-function complete() {
-    window.location.href = 'dashboard.html';
-}
-function route() {
-    if (location.hash === '#signup')
-        signup();
-    else
-        login();
-}
-document.addEventListener('pointerdown', e => {
-    document.querySelectorAll('.custom-select').forEach(wrap => {
-        if (wrap.contains(e.target))
-            return;
-        const list = wrap.querySelector('[role="listbox"]')
-          , trigger = wrap.querySelector('.select-trigger');
-        if (list && !list.hidden) {
-            list.hidden = true;
-            trigger?.setAttribute('aria-expanded', 'false');
-        }
-    }
-    );
-}
-);
-addEventListener('hashchange', () => {
-    route();
-    focusHeading();
-}
-);
-route();
