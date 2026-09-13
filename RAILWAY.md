@@ -1,5 +1,12 @@
 # Deploy OnTime on Railway
 
+This same Dockerfile also works as a Render **Web Service** with the Docker
+runtime. Leave custom build/start commands empty so the Dockerfile controls both.
+Set the health check to `/api/health`. Do not deploy as a static site.
+The public frontend listens on the provider's `PORT`; no fixed port is needed.
+Use `npm run build:deploy` and `npm start` if explicitly configuring a Node
+service instead of Docker. Install development dependencies for the build.
+
 Create one Railway service from this repository. The root Dockerfile builds the
 Vinext Node standalone frontend. Its start script launches the private Node API,
 waits for database migrations, then starts the frontend on Railway's PORT.

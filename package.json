@@ -20,7 +20,8 @@
 
   "build": "node scripts/run-framework.mjs build",
 
-  "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 0.0.0.0 --port $PORT --inspector-port 0",
+  "start": "node scripts/railway-start.mjs",
+  "build:deploy": "node scripts/build-deploy.mjs",
 
   "start:web": "vinext start",
 
